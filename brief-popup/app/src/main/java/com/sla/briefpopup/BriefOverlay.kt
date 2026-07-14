@@ -4,8 +4,10 @@ import android.app.ActivityOptions
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.RemoteInput
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.graphics.PixelFormat
 import android.graphics.Outline
@@ -16,6 +18,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
 import android.util.Size
 import android.view.Display
@@ -32,6 +35,7 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import rikka.shizuku.Shizuku
 
 /**
  * Capsula fina no topo, estilo "pop-up breve" da One UI.
@@ -95,6 +99,38 @@ class BriefOverlay(private val ctx: Context) {
         uiCtx.packageManager.hasSystemFeature(PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT)
     }
 
+    /**
+     * O UserService do Shizuku roda FreeformUserService num processo
+     * separado com uid shell/root - so' la' dentro setLaunchWindowingMode
+     * nao e' bloqueado por hidden-API enforcement (confirmado por logcat
+     * que no processo normal do app da' NoSuchMethodException). Bind e'
+     * assincrono (via ServiceConnection) e cacheado; chamadas seguintes
+     * reusam o binder sem precisar subir o processo de novo.
+     */
+    private var freeformService: IFreeformService? = null
+    private var pendingFreeformRequest: Pair<PendingIntent, Rect>? = null
+
+    private val userServiceArgs by lazy {
+        Shizuku.UserServiceArgs(ComponentName(uiCtx.packageName, FreeformUserService::class.java.name))
+            .daemon(false)
+            .processNameSuffix("freeform")
+            .debuggable(false)
+            .version(BuildConfig.VERSION_CODE)
+    }
+
+    private val userServiceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            freeformService = IFreeformService.Stub.asInterface(binder)
+            val req = pendingFreeformRequest
+            pendingFreeformRequest = null
+            if (req != null) resolveFreeformRequest(req.first, req.second)
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            freeformService = null
+        }
+    }
+
     fun show(item: Item) = main.post {
         val v = view ?: inflate().also {
             wm.addView(it, params())
@@ -115,7 +151,13 @@ class BriefOverlay(private val ctx: Context) {
         if (current?.key == key) dismiss()
     }
 
-    fun destroy() = main.post { dismiss() }
+    fun destroy() = main.post {
+        dismiss()
+        if (freeformService != null) {
+            runCatching { Shizuku.unbindUserService(userServiceArgs, userServiceConnection, true) }
+            freeformService = null
+        }
+    }
 
     // ---------------------------------------------------------------- interno
 
@@ -197,7 +239,7 @@ class BriefOverlay(private val ctx: Context) {
                     val dy = e.rawY - dragStartY
                     if (dy > dp(FREEFORM_DRAG_THRESHOLD_DP)) {
                         Log.d("BriefOverlay", "drag threshold atingido (dy=$dy), tentando freeform")
-                        if (!launchFreeform(current)) open() else dismiss()
+                        attemptFreeform(current)
                     } else {
                         Log.d("BriefOverlay", "drag abaixo do limiar (dy=$dy), voltando pra posicao")
                         v.animate().translationY(0f).setDuration(120).start()
@@ -376,23 +418,27 @@ class BriefOverlay(private val ctx: Context) {
     }
 
     /**
-     * Tenta abrir o app de origem em Freeform, arrastando bounds pro centro
-     * da tela. Reusa o contentIntent real da notificacao (nao um Intent com
-     * package/classe fixos) - funciona pra qualquer app da allowlist.
+     * Tenta abrir o app de origem em Freeform de verdade, via Shizuku
+     * (FreeformUserService roda com uid shell/root - so' la' o
+     * setLaunchWindowingMode nao e' bloqueado por hidden-API enforcement,
+     * confirmado por logcat que no processo normal do app da'
+     * NoSuchMethodException). Reusa o contentIntent real da notificacao
+     * (mantem o deep-link pra conversa exata) em vez de montar um Intent
+     * com package/classe fixos.
      *
-     * WINDOWING_MODE_FREEFORM (5) e ActivityOptions.setLaunchWindowingMode
-     * sao API oculta (@hide) - so' acessivel via reflection. Confirmado por
-     * logcat neste aparelho: reflection e' bloqueada de vez
-     * (NoSuchMethodException) por causa do targetSdk alto do app (35) -
-     * enforcement de hidden API remove o metodo por completo, nao e' so'
-     * "nao ter efeito". Por isso essa etapa fica isolada num try/catch
-     * proprio: se falhar, NAO desiste do freeform inteiro - ainda manda o
-     * intent so' com launchBounds (API publica desde 24), que em alguns
-     * ROMs com freeform ja' habilitado e' suficiente pra cair em Freeform
-     * mesmo sem o windowing mode explicito.
+     * Assincrono quando precisa subir o processo do UserService pela
+     * primeira vez (bindUserService so' resolve via ServiceConnection);
+     * dismiss()/open() acontecem quando o resultado chega, nao aqui.
      */
-    private fun launchFreeform(item: Item?): Boolean {
-        val intent = item?.contentIntent ?: return false
+    private fun attemptFreeform(item: Item?) {
+        val intent = item?.contentIntent
+        if (intent == null || !Shizuku.pingBinder() ||
+            Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.d("BriefOverlay", "attemptFreeform(): Shizuku indisponivel/sem permissao, abrindo normal")
+            open()
+            return
+        }
 
         val bounds = wm.currentWindowMetrics.bounds
         val marginW = (bounds.width() * 0.1).toInt()
@@ -402,33 +448,20 @@ class BriefOverlay(private val ctx: Context) {
             bounds.right - marginW, bounds.bottom - marginH
         )
 
-        val options = ActivityOptions.makeBasic()
-        options.launchBounds = launchRect   // API publica desde 24
-
-        val windowingModeSet = try {
-            ActivityOptions::class.java
-                .getMethod("setLaunchWindowingMode", Integer.TYPE)
-                .invoke(options, 5)
-            true
-        } catch (e: Throwable) {
-            Log.w("BriefOverlay", "launchFreeform(): setLaunchWindowingMode bloqueado (hidden API), seguindo so' com launchBounds", e)
-            false
+        val cached = freeformService
+        if (cached != null) {
+            resolveFreeformRequest(intent, launchRect)
+        } else {
+            pendingFreeformRequest = intent to launchRect
+            Shizuku.bindUserService(userServiceArgs, userServiceConnection)
         }
+    }
 
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                options.setPendingIntentBackgroundActivityStartMode(
-                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
-                )
-            }
-            intent.send(uiCtx, 0, null, null, null, null, options.toBundle())
-            Log.d("BriefOverlay", "launchFreeform(): intent.send() ok (windowingMode setado=$windowingModeSet)")
-            true
-        } catch (e: Throwable) {
-            // Deliberadamente amplo: SecurityException/CanceledException e'
-            // esperado aqui tambem - tudo vira "sem freeform, cai pro open()".
-            Log.w("BriefOverlay", "launchFreeform(): fallback para open()", e)
-            false
+    private fun resolveFreeformRequest(intent: PendingIntent, bounds: Rect) {
+        val ok = runCatching { freeformService?.launchFreeform(intent, bounds) }.getOrNull() ?: false
+        main.post {
+            Log.d("BriefOverlay", "resolveFreeformRequest(): ok=$ok")
+            if (ok) dismiss() else open()
         }
     }
 
