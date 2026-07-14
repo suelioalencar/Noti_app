@@ -2,6 +2,7 @@ package com.sla.briefpopup
 
 import android.app.ActivityOptions
 import android.app.PendingIntent
+import android.content.Intent
 import android.graphics.Rect
 import android.os.Build
 import android.util.Log
@@ -43,7 +44,16 @@ class FreeformUserService : IFreeformService.Stub() {
                 )
             }
 
-            intent.send(null, 0, null, null, null, null, options.toBundle())
+            // Windowing mode e' propriedade da TASK, nao do launch em si - uma
+            // vez em Freeform, a task fica assim pra qualquer abertura futura
+            // (inclusive tocando a notificacao na central, fora do nosso app).
+            // NEW_TASK + MULTIPLE_TASK forca uma instancia de task separada
+            // so' pro launch em Freeform, sem "contaminar" a task padrao que
+            // a central de notificacoes e o open() normal reusam.
+            val fillIn = Intent().apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+            }
+            intent.send(null, 0, fillIn, null, null, null, options.toBundle())
             true
         } catch (e: Throwable) {
             Log.w("FreeformUserService", "launchFreeform() falhou mesmo com uid shell", e)
