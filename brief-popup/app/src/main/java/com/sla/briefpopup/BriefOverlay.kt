@@ -171,10 +171,28 @@ class BriefOverlay(private val ctx: Context) {
         expanded = expand
         val replyRow = v.findViewById<View>(R.id.replyRow)
         val editText = v.findViewById<EditText>(R.id.replyInput)
+        val avatar = v.findViewById<ImageView>(R.id.avatar)
+        val title = v.findViewById<TextView>(R.id.title)
+        val text = v.findViewById<TextView>(R.id.text)
         val imm = uiCtx.getSystemService(InputMethodManager::class.java)
 
         v.findViewById<ImageView>(R.id.expandChevron).rotation = if (expand) 180f else 0f
         replyRow.visibility = if (expand) View.VISIBLE else View.GONE
+
+        val avatarSize = dp(if (expand) 48 else 32)
+        avatar.layoutParams = avatar.layoutParams.apply {
+            width = avatarSize
+            height = avatarSize
+        }
+
+        val maxWidth = dp(if (expand) 280 else 240)
+        title.maxWidth = maxWidth
+        text.maxWidth = maxWidth
+        title.textSize = if (expand) 15f else 13f
+        text.textSize = if (expand) 15f else 13f
+        text.isSingleLine = !expand
+        text.maxLines = if (expand) 6 else 1
+        text.ellipsize = if (expand) null else android.text.TextUtils.TruncateAt.END
 
         // Janela precisa virar focavel pra o EditText aceitar teclado; do
         // contrario o toque nela nem chega no IME (janela overlay comum e'
