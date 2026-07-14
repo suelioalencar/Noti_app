@@ -23,6 +23,16 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Sem isso, o AGP gera um debug.keystore novo (chave aleatoria) a cada
+      # run, ja' que o runner e' uma VM efemera. Isso quebra "adb install -r"
+      # a cada build: a assinatura muda e o Android recusa a atualizacao.
+      # Runs futuros restauram a mesma keystore do cache => assinatura estavel.
+      - name: Cache do debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore
+
       # Gera o gradle-wrapper.jar (o unico arquivo binario que faltava).
       - name: Gerar wrapper
         run: gradle wrapper --gradle-version 8.9
