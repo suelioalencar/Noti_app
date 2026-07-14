@@ -1,5 +1,6 @@
 package com.sla.briefpopup
 
+import android.app.ActivityOptions
 import android.app.Notification
 import android.app.PendingIntent
 import android.content.Context
@@ -7,6 +8,7 @@ import android.graphics.PixelFormat
 import android.graphics.Outline
 import android.graphics.drawable.Icon
 import android.hardware.display.DisplayManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Display
@@ -159,7 +161,18 @@ class BriefOverlay(private val ctx: Context) {
             return
         }
         try {
-            intent.send()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                // Opt-in do lado do remetente (nos). Sem isso, o BAL so' considera
+                // o lado do criador do PendingIntent (ex: WhatsApp), que nunca
+                // opta in - e' exatamente o bloqueio que vimos no dumpsys/logcat.
+                val options = ActivityOptions.makeBasic()
+                options.setPendingIntentBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                )
+                intent.send(uiCtx, 0, null, null, null, null, options.toBundle())
+            } else {
+                intent.send()
+            }
             Log.d("BriefOverlay", "open(): send() ok, creator=${intent.creatorPackage}")
         } catch (e: PendingIntent.CanceledException) {
             Log.w("BriefOverlay", "open(): PendingIntent cancelado", e)
