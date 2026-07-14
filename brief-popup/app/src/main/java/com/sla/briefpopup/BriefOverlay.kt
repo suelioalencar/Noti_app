@@ -15,6 +15,7 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewOutlineProvider
+import android.util.Log
 import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.TextView
@@ -141,7 +142,16 @@ class BriefOverlay(private val ctx: Context) {
     private fun open() {
         val intent = current?.contentIntent
         dismiss()
-        try { intent?.send() } catch (_: PendingIntent.CanceledException) { }
+        if (intent == null) {
+            Log.w("BriefOverlay", "open(): contentIntent e' null, nada para abrir")
+            return
+        }
+        try {
+            intent.send()
+            Log.d("BriefOverlay", "open(): send() ok, creator=${intent.creatorPackage}")
+        } catch (e: PendingIntent.CanceledException) {
+            Log.w("BriefOverlay", "open(): PendingIntent cancelado", e)
+        }
     }
 
     private fun dismiss() {
