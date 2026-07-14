@@ -101,12 +101,23 @@
             android:imeOptions="actionSend" />
     </LinearLayout>
 
-    <View
-        android:id="@+id/dragHandle"
-        android:layout_width="32dp"
-        android:layout_height="4dp"
+    <!--
+      Area de toque bem maior que a barrinha visivel (que fica so' 32x4dp) -
+      um alvo desse tamanho e' praticamente impossivel de acertar no dedo.
+      O FrameLayout inteiro (120x40dp) recebe o toque; o View e' so' o desenho.
+    -->
+    <FrameLayout
+        android:id="@+id/dragHandleTouchArea"
+        android:layout_width="120dp"
+        android:layout_height="40dp"
         android:layout_gravity="center_horizontal"
-        android:layout_marginTop="6dp"
-        android:background="@drawable/bg_grabber_handle"
-        android:visibility="gone" />
+        android:visibility="gone">
+
+        <View
+            android:id="@+id/dragHandle"
+            android:layout_width="32dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_grabber_handle" />
+    </FrameLayout>
 </LinearLayout>

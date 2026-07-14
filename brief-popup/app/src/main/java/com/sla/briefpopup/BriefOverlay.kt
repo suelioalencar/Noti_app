@@ -173,12 +173,16 @@ class BriefOverlay(private val ctx: Context) {
         }
 
         // Alca de arrastar (so' visivel na capsula colapsada, quando a ROM
-        // sinaliza suporte a Freeform). Listener proprio, separado do da
-        // raiz, pra nao conflitar com o tap/swipe-up ja existente.
-        val handle = v.findViewById<View>(R.id.dragHandle)
-        handle.visibility = if (!expanded && supportsFreeform) View.VISIBLE else View.GONE
+        // sinaliza suporte a Freeform). A area de toque (dragHandleTouchArea,
+        // 120x40dp) e' bem maior que a barrinha desenhada (32x4dp) - um alvo
+        // do tamanho da barrinha e' praticamente impossivel de acertar.
+        // Listener proprio, separado do da raiz, pra nao conflitar com o
+        // tap/swipe-up ja existente.
+        Log.d("BriefOverlay", "supportsFreeform=$supportsFreeform")
+        val handleArea = v.findViewById<View>(R.id.dragHandleTouchArea)
+        handleArea.visibility = if (!expanded && supportsFreeform) View.VISIBLE else View.GONE
         var dragStartY = 0f
-        handle.setOnTouchListener { _, e ->
+        handleArea.setOnTouchListener { _, e ->
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
                     dragStartY = e.rawY
@@ -192,8 +196,10 @@ class BriefOverlay(private val ctx: Context) {
                 MotionEvent.ACTION_UP -> {
                     val dy = e.rawY - dragStartY
                     if (dy > dp(FREEFORM_DRAG_THRESHOLD_DP)) {
+                        Log.d("BriefOverlay", "drag threshold atingido (dy=$dy), tentando freeform")
                         if (!launchFreeform(current)) open() else dismiss()
                     } else {
+                        Log.d("BriefOverlay", "drag abaixo do limiar (dy=$dy), voltando pra posicao")
                         v.animate().translationY(0f).setDuration(120).start()
                         main.postDelayed(hideRunnable, DURATION_MS)
                     }
@@ -281,13 +287,13 @@ class BriefOverlay(private val ctx: Context) {
         val title = v.findViewById<TextView>(R.id.title)
         val text = v.findViewById<TextView>(R.id.text)
         val messageList = v.findViewById<View>(R.id.messageList)
-        val dragHandle = v.findViewById<View>(R.id.dragHandle)
+        val dragHandleArea = v.findViewById<View>(R.id.dragHandleTouchArea)
         val imm = uiCtx.getSystemService(InputMethodManager::class.java)
 
         v.findViewById<ImageView>(R.id.expandChevron).rotation = if (expand) 180f else 0f
         replyRow.visibility = if (expand) View.VISIBLE else View.GONE
         messageList.visibility = if (expand) View.VISIBLE else View.GONE
-        dragHandle.visibility = if (!expand && supportsFreeform) View.VISIBLE else View.GONE
+        dragHandleArea.visibility = if (!expand && supportsFreeform) View.VISIBLE else View.GONE
 
         val avatarSize = dp(if (expand) 48 else 32)
         avatar.layoutParams = avatar.layoutParams.apply {
@@ -404,6 +410,7 @@ class BriefOverlay(private val ctx: Context) {
                 )
             }
             intent.send(uiCtx, 0, null, null, null, null, options.toBundle())
+            Log.d("BriefOverlay", "launchFreeform(): intent.send() ok, windowingMode pode ou nao ter sido honrado pela ROM")
             true
         } catch (e: Throwable) {
             // Deliberadamente amplo: falha de reflection em API oculta pode
