@@ -3,6 +3,7 @@ package com.sla.briefpopup
 import android.app.ActivityOptions
 import android.app.PendingIntent
 import android.graphics.Rect
+import android.os.Build
 import android.util.Log
 
 /**
@@ -30,6 +31,17 @@ class FreeformUserService : IFreeformService.Stub() {
             ActivityOptions::class.java
                 .getMethod("setLaunchWindowingMode", Integer.TYPE)
                 .invoke(options, 5)   // WINDOWING_MODE_FREEFORM
+
+            // Sem isso o launch e' aceito (intent.send() nao lanca) mas fica
+            // "invisible launch ... result code=0" - BAL_BLOCK, confirmado
+            // por logcat (balRequireOptInByPendingIntentCreator=true). Mesmo
+            // opt-in que ja' faz open() funcionar hoje, so' que aqui do lado
+            // do processo shell/root em vez do processo normal do app.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                options.setPendingIntentBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                )
+            }
 
             intent.send(null, 0, null, null, null, null, options.toBundle())
             true

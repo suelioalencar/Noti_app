@@ -12,7 +12,10 @@ android {
         // createWindowContext() exige API 30. O aparelho alvo e' Android 16.
         minSdk = 30
         targetSdk = 35
-        versionCode = 1
+        // O Shizuku usa esse numero pra saber se precisa derrubar e subir de
+        // novo o processo do UserService (senao reaproveita o antigo com
+        // codigo desatualizado). Subir a cada mudanca em FreeformUserService.
+        versionCode = 2
         versionName = "1.0"
     }
 
