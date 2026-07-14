@@ -27,10 +27,12 @@ jobs:
       # run, ja' que o runner e' uma VM efemera. Isso quebra "adb install -r"
       # a cada build: a assinatura muda e o Android recusa a atualizacao.
       # Runs futuros restauram a mesma keystore do cache => assinatura estavel.
+      # Caminho confirmado via diagnostico direto no runner (nao e' ~/.android/,
+      # e' ~/.config/.android/ - convencao XDG).
       - name: Cache do debug keystore
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
+          path: ~/.config/.android/debug.keystore
           key: android-debug-keystore
 
       # Gera o gradle-wrapper.jar (o unico arquivo binario que faltava).
@@ -39,18 +41,6 @@ jobs:
 
       - name: Compilar
         run: ./gradlew assembleDebug --stacktrace
-
-      # Diagnostico temporario: o cache em ~/.android/debug.keystore nunca
-      # salvou nada ("path does not exist"), entao a keystore debug deve
-      # estar sendo criada em outro lugar. Achar o caminho real.
-      - name: Diagnostico keystore
-        run: |
-          echo "HOME=$HOME"
-          echo "ANDROID_SDK_HOME=$ANDROID_SDK_HOME"
-          echo "ANDROID_USER_HOME=$ANDROID_USER_HOME"
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls -la ~/.android/ 2>&1 || echo "~/.android nao existe"
-          find / -iname "debug.keystore" 2>/dev/null
 
       - name: Publicar APK
         uses: actions/upload-artifact@v4
