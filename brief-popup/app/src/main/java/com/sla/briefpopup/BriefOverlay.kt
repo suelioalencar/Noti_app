@@ -381,41 +381,52 @@ class BriefOverlay(private val ctx: Context) {
      * package/classe fixos) - funciona pra qualquer app da allowlist.
      *
      * WINDOWING_MODE_FREEFORM (5) e ActivityOptions.setLaunchWindowingMode
-     * sao API oculta (@hide) - so' acessivel via reflection, que pode
-     * lancar OU nao ter efeito nenhum dependendo da versao/OEM. Best-effort
-     * de verdade: qualquer falha aqui devolve false e quem chamou cai pro
-     * open() normal, nunca deixa o usuario sem resposta.
+     * sao API oculta (@hide) - so' acessivel via reflection. Confirmado por
+     * logcat neste aparelho: reflection e' bloqueada de vez
+     * (NoSuchMethodException) por causa do targetSdk alto do app (35) -
+     * enforcement de hidden API remove o metodo por completo, nao e' so'
+     * "nao ter efeito". Por isso essa etapa fica isolada num try/catch
+     * proprio: se falhar, NAO desiste do freeform inteiro - ainda manda o
+     * intent so' com launchBounds (API publica desde 24), que em alguns
+     * ROMs com freeform ja' habilitado e' suficiente pra cair em Freeform
+     * mesmo sem o windowing mode explicito.
      */
     private fun launchFreeform(item: Item?): Boolean {
         val intent = item?.contentIntent ?: return false
-        return try {
-            val bounds = wm.currentWindowMetrics.bounds
-            val marginW = (bounds.width() * 0.1).toInt()
-            val marginH = (bounds.height() * 0.1).toInt()
-            val launchRect = Rect(
-                bounds.left + marginW, bounds.top + marginH,
-                bounds.right - marginW, bounds.bottom - marginH
-            )
 
-            val options = ActivityOptions.makeBasic()
-            options.launchBounds = launchRect   // API publica desde 24
+        val bounds = wm.currentWindowMetrics.bounds
+        val marginW = (bounds.width() * 0.1).toInt()
+        val marginH = (bounds.height() * 0.1).toInt()
+        val launchRect = Rect(
+            bounds.left + marginW, bounds.top + marginH,
+            bounds.right - marginW, bounds.bottom - marginH
+        )
 
+        val options = ActivityOptions.makeBasic()
+        options.launchBounds = launchRect   // API publica desde 24
+
+        val windowingModeSet = try {
             ActivityOptions::class.java
                 .getMethod("setLaunchWindowingMode", Integer.TYPE)
                 .invoke(options, 5)
+            true
+        } catch (e: Throwable) {
+            Log.w("BriefOverlay", "launchFreeform(): setLaunchWindowingMode bloqueado (hidden API), seguindo so' com launchBounds", e)
+            false
+        }
 
+        return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 options.setPendingIntentBackgroundActivityStartMode(
                     ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
                 )
             }
             intent.send(uiCtx, 0, null, null, null, null, options.toBundle())
-            Log.d("BriefOverlay", "launchFreeform(): intent.send() ok, windowingMode pode ou nao ter sido honrado pela ROM")
+            Log.d("BriefOverlay", "launchFreeform(): intent.send() ok (windowingMode setado=$windowingModeSet)")
             true
         } catch (e: Throwable) {
-            // Deliberadamente amplo: falha de reflection em API oculta pode
-            // aparecer como Error em algumas ROMs, alem de SecurityException/
-            // CanceledException normais - tudo aqui vira "sem freeform".
+            // Deliberadamente amplo: SecurityException/CanceledException e'
+            // esperado aqui tambem - tudo vira "sem freeform, cai pro open()".
             Log.w("BriefOverlay", "launchFreeform(): fallback para open()", e)
             false
         }
