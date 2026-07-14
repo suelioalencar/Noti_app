@@ -3,12 +3,15 @@ package com.sla.briefpopup
 import android.app.ActivityOptions
 import android.app.Notification
 import android.app.PendingIntent
+import android.app.RemoteInput
 import android.content.Context
+import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.Outline
 import android.graphics.drawable.Icon
 import android.hardware.display.DisplayManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Display
@@ -17,8 +20,11 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewOutlineProvider
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.util.Log
 import android.view.WindowManager
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
 
@@ -64,6 +70,7 @@ class BriefOverlay(private val ctx: Context) {
 
     private var view: View? = null
     private var current: Item? = null
+    private var expanded = false
     private val hideRunnable = Runnable { dismiss() }
 
     fun show(item: Item) = main.post {
@@ -74,6 +81,7 @@ class BriefOverlay(private val ctx: Context) {
             it.animate().alpha(1f).translationY(0f).setDuration(180).start()
         }
         view = v
+        if (expanded) setExpanded(v, false)   // conteudo novo: volta pra capsula compacta
         current = item
         bind(v, item)
 
@@ -126,6 +134,21 @@ class BriefOverlay(private val ctx: Context) {
                 else -> true
             }
         }
+
+        v.findViewById<ImageView>(R.id.expandChevron).setOnClickListener {
+            setExpanded(v, !expanded)
+        }
+
+        v.findViewById<EditText>(R.id.replyInput).setOnEditorActionListener { tv, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEND) {
+                val text = tv.text?.toString().orEmpty()
+                if (text.isNotBlank()) {
+                    sendReply(text)
+                    dismiss()
+                }
+                true
+            } else false
+        }
         return v
     }
 
@@ -138,6 +161,66 @@ class BriefOverlay(private val ctx: Context) {
         v.findViewById<TextView>(R.id.text).text = item.text
         v.findViewById<ImageView>(R.id.avatar).apply {
             item.icon?.let { setImageIcon(it) }
+        }
+        v.findViewById<ImageView>(R.id.expandChevron).visibility =
+            if (item.replyAction != null) View.VISIBLE else View.GONE
+    }
+
+    /** Expande em estilo card com campo de resposta, ou volta a' capsula compacta. */
+    private fun setExpanded(v: View, expand: Boolean) {
+        expanded = expand
+        val replyRow = v.findViewById<View>(R.id.replyRow)
+        val editText = v.findViewById<EditText>(R.id.replyInput)
+        val imm = uiCtx.getSystemService(InputMethodManager::class.java)
+
+        v.findViewById<ImageView>(R.id.expandChevron).rotation = if (expand) 180f else 0f
+        replyRow.visibility = if (expand) View.VISIBLE else View.GONE
+
+        // Janela precisa virar focavel pra o EditText aceitar teclado; do
+        // contrario o toque nela nem chega no IME (janela overlay comum e'
+        // FLAG_NOT_FOCUSABLE de proposito, pra nao roubar foco da tela por tras).
+        setWindowFocusable(v, expand)
+
+        if (expand) {
+            main.removeCallbacks(hideRunnable)
+            editText.requestFocus()
+            imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+        } else {
+            imm?.hideSoftInputFromWindow(editText.windowToken, 0)
+            editText.text?.clear()
+            main.removeCallbacks(hideRunnable)
+            main.postDelayed(hideRunnable, DURATION_MS)
+        }
+    }
+
+    private fun setWindowFocusable(v: View, focusable: Boolean) {
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        lp.flags = if (focusable) {
+            lp.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+        } else {
+            lp.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        }
+        runCatching { wm.updateViewLayout(v, lp) }
+    }
+
+    /** Preenche o RemoteInput da action e dispara - normalmente um Broadcast/Service
+     * do proprio app (nao uma Activity), entao nao esbarra no bloqueio de BAL. */
+    private fun sendReply(text: CharSequence) {
+        val action = current?.replyAction ?: return
+        val remoteInputs = action.remoteInputs
+        if (remoteInputs == null || remoteInputs.isEmpty()) {
+            Log.w("BriefOverlay", "sendReply(): action sem RemoteInput")
+            return
+        }
+        val results = Bundle().apply {
+            for (ri in remoteInputs) putCharSequence(ri.resultKey, text)
+        }
+        val fillIn = Intent()
+        RemoteInput.addResultsToIntent(remoteInputs, fillIn, results)
+        try {
+            action.actionIntent.send(uiCtx, 0, fillIn)
+        } catch (e: PendingIntent.CanceledException) {
+            Log.w("BriefOverlay", "sendReply(): PendingIntent cancelado", e)
         }
     }
 
