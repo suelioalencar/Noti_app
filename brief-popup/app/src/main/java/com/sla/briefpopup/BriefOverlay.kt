@@ -6,14 +6,18 @@ import android.app.PendingIntent
 import android.app.RemoteInput
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.PixelFormat
 import android.graphics.Outline
+import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.hardware.display.DisplayManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Size
 import android.view.Display
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -26,6 +30,7 @@ import android.util.Log
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
@@ -37,6 +42,14 @@ import android.widget.TextView
  */
 class BriefOverlay(private val ctx: Context) {
 
+    data class MessageLine(
+        val sender: CharSequence?,
+        val text: CharSequence?,
+        val timeMs: Long,
+        val dataUri: Uri?,
+        val dataMimeType: String?
+    )
+
     data class Item(
         val key: String,
         val title: String,
@@ -45,12 +58,16 @@ class BriefOverlay(private val ctx: Context) {
         val isGroup: Boolean,
         val conversationTitle: String?,
         val contentIntent: PendingIntent?,
-        val replyAction: Notification.Action?
+        val replyAction: Notification.Action?,
+        val messages: List<MessageLine> = emptyList()
     )
 
     companion object {
         private const val DURATION_MS = 5000L
         private const val SWIPE_THRESHOLD_DP = 24
+        private const val EXPANDED_SIDE_GUTTER_DP = 8
+        private const val THUMB_SIZE_DP = 40
+        private const val FREEFORM_DRAG_THRESHOLD_DP = 64
     }
 
     /**
@@ -72,6 +89,11 @@ class BriefOverlay(private val ctx: Context) {
     private var current: Item? = null
     private var expanded = false
     private val hideRunnable = Runnable { dismiss() }
+
+    /** So' um sinal de UI (mostrar ou nao a alca) - nao garante que a OEM honre o launch em Freeform. */
+    private val supportsFreeform: Boolean by lazy {
+        uiCtx.packageManager.hasSystemFeature(PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT)
+    }
 
     fun show(item: Item) = main.post {
         val v = view ?: inflate().also {
@@ -149,6 +171,42 @@ class BriefOverlay(private val ctx: Context) {
                 true
             } else false
         }
+
+        // Alca de arrastar (so' visivel na capsula colapsada, quando a ROM
+        // sinaliza suporte a Freeform). Listener proprio, separado do da
+        // raiz, pra nao conflitar com o tap/swipe-up ja existente.
+        val handle = v.findViewById<View>(R.id.dragHandle)
+        handle.visibility = if (!expanded && supportsFreeform) View.VISIBLE else View.GONE
+        var dragStartY = 0f
+        handle.setOnTouchListener { _, e ->
+            when (e.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    dragStartY = e.rawY
+                    main.removeCallbacks(hideRunnable)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    v.translationY = (e.rawY - dragStartY).coerceAtLeast(0f)
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dy = e.rawY - dragStartY
+                    if (dy > dp(FREEFORM_DRAG_THRESHOLD_DP)) {
+                        if (!launchFreeform(current)) open() else dismiss()
+                    } else {
+                        v.animate().translationY(0f).setDuration(120).start()
+                        main.postDelayed(hideRunnable, DURATION_MS)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    v.animate().translationY(0f).setDuration(120).start()
+                    main.postDelayed(hideRunnable, DURATION_MS)
+                    true
+                }
+                else -> true
+            }
+        }
         return v
     }
 
@@ -164,9 +222,57 @@ class BriefOverlay(private val ctx: Context) {
         }
         v.findViewById<ImageView>(R.id.expandChevron).visibility =
             if (item.replyAction != null) View.VISIBLE else View.GONE
+
+        bindMessages(v, item)
     }
 
-    /** Expande em estilo card com campo de resposta, ou volta a' capsula compacta. */
+    /** Preenche o banner expandido com ate 3 mensagens (bind() roda sempre, e' barato). */
+    private fun bindMessages(v: View, item: Item) {
+        val messageList = v.findViewById<LinearLayout>(R.id.messageList)
+        messageList.removeAllViews()   // view e' reaproveitada entre notificacoes - critico
+        for (m in item.messages) {
+            val row = LayoutInflater.from(uiCtx)
+                .inflate(R.layout.brief_message_row, messageList, false)
+            val senderTv = row.findViewById<TextView>(R.id.msgSender)
+            val textTv = row.findViewById<TextView>(R.id.msgText)
+            val thumb = row.findViewById<ImageView>(R.id.msgThumb)
+
+            val showSender = item.isGroup && m.sender != null && m.sender != item.conversationTitle
+            senderTv.visibility = if (showSender) View.VISIBLE else View.GONE
+            senderTv.text = m.sender
+            textTv.text = m.text ?: ""
+
+            when {
+                m.dataUri != null && m.dataMimeType?.startsWith("image/") == true -> {
+                    thumb.visibility = View.VISIBLE
+                    loadThumbnail(thumb, m.dataUri, item.key)
+                }
+                m.dataUri != null -> {
+                    thumb.visibility = View.GONE
+                    textTv.text = "${textTv.text} [anexo]"
+                }
+                else -> thumb.visibility = View.GONE
+            }
+            messageList.addView(row)
+        }
+    }
+
+    /** Thumbnail fora da main thread; descarta resultado se o popup ja mudou de conteudo. */
+    private fun loadThumbnail(iv: ImageView, uri: Uri, forKey: String) {
+        Thread {
+            val bmp = runCatching {
+                uiCtx.contentResolver.loadThumbnail(
+                    uri, Size(dp(THUMB_SIZE_DP), dp(THUMB_SIZE_DP)), null
+                )
+            }.getOrNull()
+            main.post {
+                if (current?.key != forKey) return@post
+                if (bmp != null) iv.setImageBitmap(bmp) else iv.visibility = View.GONE
+            }
+        }.start()
+    }
+
+    /** Expande em estilo banner full-width com as ultimas mensagens e resposta, ou volta a' capsula compacta. */
     private fun setExpanded(v: View, expand: Boolean) {
         expanded = expand
         val replyRow = v.findViewById<View>(R.id.replyRow)
@@ -174,10 +280,14 @@ class BriefOverlay(private val ctx: Context) {
         val avatar = v.findViewById<ImageView>(R.id.avatar)
         val title = v.findViewById<TextView>(R.id.title)
         val text = v.findViewById<TextView>(R.id.text)
+        val messageList = v.findViewById<View>(R.id.messageList)
+        val dragHandle = v.findViewById<View>(R.id.dragHandle)
         val imm = uiCtx.getSystemService(InputMethodManager::class.java)
 
         v.findViewById<ImageView>(R.id.expandChevron).rotation = if (expand) 180f else 0f
         replyRow.visibility = if (expand) View.VISIBLE else View.GONE
+        messageList.visibility = if (expand) View.VISIBLE else View.GONE
+        dragHandle.visibility = if (!expand && supportsFreeform) View.VISIBLE else View.GONE
 
         val avatarSize = dp(if (expand) 48 else 32)
         avatar.layoutParams = avatar.layoutParams.apply {
@@ -185,7 +295,9 @@ class BriefOverlay(private val ctx: Context) {
             height = avatarSize
         }
 
-        val maxWidth = dp(if (expand) 280 else 240)
+        val maxWidth = if (expand)
+            wm.currentWindowMetrics.bounds.width() - dp(EXPANDED_SIDE_GUTTER_DP * 2 + 80)
+        else dp(240)
         title.maxWidth = maxWidth
         text.maxWidth = maxWidth
         title.textSize = if (expand) 15f else 13f
@@ -194,10 +306,12 @@ class BriefOverlay(private val ctx: Context) {
         text.maxLines = if (expand) 6 else 1
         text.ellipsize = if (expand) null else android.text.TextUtils.TruncateAt.END
 
-        // Janela precisa virar focavel pra o EditText aceitar teclado; do
-        // contrario o toque nela nem chega no IME (janela overlay comum e'
-        // FLAG_NOT_FOCUSABLE de proposito, pra nao roubar foco da tela por tras).
-        setWindowFocusable(v, expand)
+        // Janela precisa virar focavel pra o EditText aceitar teclado (do
+        // contrario o toque nela nem chega no IME - janela overlay comum e'
+        // FLAG_NOT_FOCUSABLE de proposito, pra nao roubar foco da tela por tras)
+        // e virar full-width pro banner expandido; as duas coisas mudam
+        // WindowManager.LayoutParams, entao ficam numa unica chamada a updateViewLayout.
+        applyExpandedWindowState(v, expand)
 
         if (expand) {
             main.removeCallbacks(hideRunnable)
@@ -211,12 +325,25 @@ class BriefOverlay(private val ctx: Context) {
         }
     }
 
-    private fun setWindowFocusable(v: View, focusable: Boolean) {
+    /**
+     * Alterna foco (pro EditText aceitar teclado) e largura da janela
+     * (capsula centralizada <-> banner quase full-width) numa unica
+     * chamada a updateViewLayout.
+     */
+    private fun applyExpandedWindowState(v: View, expand: Boolean) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        lp.flags = if (focusable) {
+        lp.flags = if (expand) {
             lp.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
         } else {
             lp.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        }
+        if (expand) {
+            val screenW = wm.currentWindowMetrics.bounds.width()
+            lp.width = screenW - dp(EXPANDED_SIDE_GUTTER_DP * 2)
+            lp.gravity = Gravity.TOP
+        } else {
+            lp.width = WindowManager.LayoutParams.WRAP_CONTENT
+            lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
         }
         runCatching { wm.updateViewLayout(v, lp) }
     }
@@ -239,6 +366,51 @@ class BriefOverlay(private val ctx: Context) {
             action.actionIntent.send(uiCtx, 0, fillIn)
         } catch (e: PendingIntent.CanceledException) {
             Log.w("BriefOverlay", "sendReply(): PendingIntent cancelado", e)
+        }
+    }
+
+    /**
+     * Tenta abrir o app de origem em Freeform, arrastando bounds pro centro
+     * da tela. Reusa o contentIntent real da notificacao (nao um Intent com
+     * package/classe fixos) - funciona pra qualquer app da allowlist.
+     *
+     * WINDOWING_MODE_FREEFORM (5) e ActivityOptions.setLaunchWindowingMode
+     * sao API oculta (@hide) - so' acessivel via reflection, que pode
+     * lancar OU nao ter efeito nenhum dependendo da versao/OEM. Best-effort
+     * de verdade: qualquer falha aqui devolve false e quem chamou cai pro
+     * open() normal, nunca deixa o usuario sem resposta.
+     */
+    private fun launchFreeform(item: Item?): Boolean {
+        val intent = item?.contentIntent ?: return false
+        return try {
+            val bounds = wm.currentWindowMetrics.bounds
+            val marginW = (bounds.width() * 0.1).toInt()
+            val marginH = (bounds.height() * 0.1).toInt()
+            val launchRect = Rect(
+                bounds.left + marginW, bounds.top + marginH,
+                bounds.right - marginW, bounds.bottom - marginH
+            )
+
+            val options = ActivityOptions.makeBasic()
+            options.launchBounds = launchRect   // API publica desde 24
+
+            ActivityOptions::class.java
+                .getMethod("setLaunchWindowingMode", Integer.TYPE)
+                .invoke(options, 5)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                options.setPendingIntentBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                )
+            }
+            intent.send(uiCtx, 0, null, null, null, null, options.toBundle())
+            true
+        } catch (e: Throwable) {
+            // Deliberadamente amplo: falha de reflection em API oculta pode
+            // aparecer como Error em algumas ROMs, alem de SecurityException/
+            // CanceledException normais - tudo aqui vira "sem freeform".
+            Log.w("BriefOverlay", "launchFreeform(): fallback para open()", e)
+            false
         }
     }
 

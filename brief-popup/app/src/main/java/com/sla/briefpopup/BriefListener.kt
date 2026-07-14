@@ -1,12 +1,14 @@
 package com.sla.briefpopup
 
 import android.app.Notification
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Parcelable
 import android.os.PowerManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.util.Log
 
 /**
  * Recebe as notificacoes postadas, descarta ruido e entrega ao overlay
@@ -90,7 +92,8 @@ class BriefListener : NotificationListenerService() {
                 conversationTitle = n.extras
                     .getCharSequence("android.conversationTitle")?.toString(),
                 contentIntent = n.contentIntent,
-                replyAction = findReplyAction(n)
+                replyAction = findReplyAction(n),
+                messages = recentMessages(n)
             )
         )
     }
@@ -112,6 +115,43 @@ class BriefListener : NotificationListenerService() {
     private fun latestMessage(n: Notification): Bundle? {
         val arr = messagesArray(n.extras) ?: return null
         return arr.filterIsInstance<Bundle>().maxByOrNull { it.getLong("time") }
+    }
+
+    /**
+     * Ate as ultimas MAX_MESSAGES mensagens da conversa, mais antiga primeiro,
+     * para o banner expandido mostrar contexto (nao so a ultima linha).
+     *
+     * "uri"/"type" (anexo de imagem/figurinha) ainda NAO foram confirmadas por
+     * dumpsys neste app - ao contrario de sender/text/time. Ficam atras de
+     * runCatching individual: nome errado ou ausente vira null (so texto, sem
+     * preview), nunca crash. TODO: confirmar essas chaves no logcat (linha
+     * abaixo) contra uma mensagem real com figurinha/imagem, depois remover
+     * o Log.d.
+     */
+    private fun recentMessages(n: Notification, max: Int = 3): List<BriefOverlay.MessageLine> {
+        val arr = messagesArray(n.extras) ?: return emptyList()
+        return arr.filterIsInstance<Bundle>()
+            .sortedByDescending { it.getLong("time") }
+            .take(max)
+            .map { b ->
+                val uri = runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                        b.getParcelable("uri", Uri::class.java)
+                    else @Suppress("DEPRECATION") b.getParcelable("uri") as? Uri
+                }.getOrNull()
+                val mime = runCatching { b.getString("type") }.getOrNull()
+                if (uri != null) {
+                    Log.d("BriefListener", "msg bundle keys (attachment): ${b.keySet()}")
+                }
+                BriefOverlay.MessageLine(
+                    sender = b.getCharSequence("sender"),
+                    text = b.getCharSequence("text"),
+                    timeMs = b.getLong("time"),
+                    dataUri = uri,
+                    dataMimeType = mime
+                )
+            }
+            .reversed()
     }
 
     /** getParcelableArray(String) e' deprecated na API 33+; usa a variante tipada quando disponivel. */
