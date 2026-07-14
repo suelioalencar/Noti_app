@@ -60,9 +60,38 @@ Enquanto o overlay estiver na tela, apps que usam `filterTouchesWhenObscured` (b
 próprias caixas de permissão do Android) **recusam toques**. São ~5 s por notificação.
 Se incomodar: adicione `FLAG_NOT_TOUCHABLE` nos params e perca o toque-para-abrir.
 
+## Toque para abrir a conversa (BAL)
+
+Desde o Android 14+, `contentIntent.send()` chamado por um `NotificationListenerService`
+terceiro é bloqueado por padrão pelo Background Activity Launch (BAL) — confirmado no
+aparelho via `logcat -s ActivityTaskManager` com `Background activity launch blocked!
+goo.gle/android-bal`, tanto pro WhatsApp (`targetSdk=36`) quanto pro Telegram
+(`targetSdk=35`). Não é algo específico de app: é o Android bloqueando qualquer listener
+terceiro que tente repassar o `PendingIntent` de conteúdo de outro app.
+
+O log mostrava `balAllowedByPiSender: BSP.ALLOW_FGS` (nosso lado já tem privilégio, por ter
+janela overlay visível + processo em foreground service) mas `balAllowedByPiCreator:
+BSP.NONE` (o app dono da notificação nunca opta in). A regra é: `ALLOWED` se **ou** o
+criador **ou** o remetente tiver privilégio **e** tiver optado in explicitamente. Como o
+criador nunca vai optar in por nós, a solução é o remetente (nós) optar in em
+`BriefOverlay.open()`:
+
+```kotlin
+val options = ActivityOptions.makeBasic()
+options.setPendingIntentBackgroundActivityStartMode(
+    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+)
+intent.send(uiCtx, 0, null, null, null, null, options.toBundle())
+```
+
+Exige API 34+ (`Build.VERSION_CODES.UPSIDE_DOWN_CAKE`); abaixo disso cai para `intent.send()`
+simples. Testado e confirmado funcionando no aparelho com WhatsApp e WhatsApp Business.
+
 ## Próximos passos óbvios
 
 - **Responder do overlay**: `Item.replyAction` já carrega a `Action` com `RemoteInput`
-  (as filhas trazem `actions=3`). Falta só o campo de texto e o `send()`.
+  (as filhas trazem `actions=3`). Falta só o campo de texto e o `send()`. Como essa
+  `PendingIntent` normalmente aponta pra um `BroadcastReceiver`/`Service` (não uma
+  `Activity`), não deve esbarrar no mesmo bloqueio de BAL — mas só confirma testando.
 - Respeitar DND: checar `NotificationManager.getCurrentInterruptionFilter()`.
 - Allowlist por app em `BriefListener.allowlist`.

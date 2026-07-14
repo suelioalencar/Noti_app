@@ -104,7 +104,6 @@ class BriefOverlay(private val ctx: Context) {
         var downY = 0f
         var downX = 0f
         v.setOnTouchListener { _, e ->
-            Log.d("BriefOverlay", "touch action=${MotionEvent.actionToString(e.action)} raw=(${e.rawX},${e.rawY})")
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
                     downY = e.rawY; downX = e.rawX
@@ -114,25 +113,14 @@ class BriefOverlay(private val ctx: Context) {
                 MotionEvent.ACTION_UP -> {
                     val dy = e.rawY - downY
                     val dx = Math.abs(e.rawX - downX)
-                    Log.d("BriefOverlay", "ACTION_UP dx=$dx dy=$dy swipeThreshold=${-dp(SWIPE_THRESHOLD_DP)}")
                     when {
-                        dy < -dp(SWIPE_THRESHOLD_DP) -> {
-                            Log.d("BriefOverlay", "-> swipe up, dismiss()")
-                            dismiss()
-                        }
-                        dx < dp(12) && Math.abs(dy) < dp(12) -> {
-                            Log.d("BriefOverlay", "-> tap, open()")
-                            open()
-                        }
-                        else -> {
-                            Log.d("BriefOverlay", "-> nem swipe nem tap, reseta timer")
-                            main.postDelayed(hideRunnable, DURATION_MS)
-                        }
+                        dy < -dp(SWIPE_THRESHOLD_DP) -> dismiss()          // swipe up
+                        dx < dp(12) && Math.abs(dy) < dp(12) -> open()     // tap
+                        else -> main.postDelayed(hideRunnable, DURATION_MS)
                     }
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    Log.d("BriefOverlay", "ACTION_CANCEL, reseta timer")
                     main.postDelayed(hideRunnable, DURATION_MS); true
                 }
                 else -> true
@@ -173,7 +161,6 @@ class BriefOverlay(private val ctx: Context) {
             } else {
                 intent.send()
             }
-            Log.d("BriefOverlay", "open(): send() ok, creator=${intent.creatorPackage}")
         } catch (e: PendingIntent.CanceledException) {
             Log.w("BriefOverlay", "open(): PendingIntent cancelado", e)
         }
