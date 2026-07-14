@@ -7,6 +7,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: brief-popup
     steps:
       - uses: actions/checkout@v4
 
@@ -31,4 +34,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: brief-popup-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: brief-popup/app/build/outputs/apk/debug/app-debug.apk
