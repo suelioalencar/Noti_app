@@ -460,8 +460,14 @@ class BriefOverlay(private val ctx: Context) {
     private fun resolveFreeformRequest(intent: PendingIntent, bounds: Rect) {
         val ok = runCatching { freeformService?.launchFreeform(intent, bounds) }.getOrNull() ?: false
         main.post {
+            // "ok=true" so' significa que o intent.send() la' dentro nao lancou
+            // excecao - NAO significa que a janela realmente apareceu (ja
+            // confirmado por logcat: a task pode ficar isVisible=false mesmo
+            // com ok=true). Sempre chama o open() normal depois, sucesso ou
+            // nao: na pior das hipoteses abre em tela cheia (como sempre
+            // funcionou), na melhor resume a task ja marcada freeform.
             Log.d("BriefOverlay", "resolveFreeformRequest(): ok=$ok")
-            if (ok) dismiss() else open()
+            open()
         }
     }
 
