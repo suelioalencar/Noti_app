@@ -4,21 +4,16 @@ import android.app.ActivityOptions
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.RemoteInput
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
-import android.content.pm.PackageManager
 import android.graphics.PixelFormat
 import android.graphics.Outline
-import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
 import android.util.Size
 import android.view.Display
@@ -35,7 +30,6 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import rikka.shizuku.Shizuku
 
 /**
  * Capsula fina no topo, estilo "pop-up breve" da One UI.
@@ -43,6 +37,7 @@ import rikka.shizuku.Shizuku
  * - notificacao nova durante a exibicao: troca o conteudo e reinicia o timer
  * - toque: abre a conversa
  * - swipe para cima: dispensa
+ * - arrasta pra baixo: expande
  */
 class BriefOverlay(private val ctx: Context) {
 
@@ -63,16 +58,16 @@ class BriefOverlay(private val ctx: Context) {
         val conversationTitle: String?,
         val contentIntent: PendingIntent?,
         val replyAction: Notification.Action?,
+        val markAsReadAction: Notification.Action? = null,
         val messages: List<MessageLine> = emptyList()
     )
 
     companion object {
         private const val DURATION_MS = 5000L
         private const val SWIPE_THRESHOLD_DP = 24
+        private const val EXPAND_DRAG_THRESHOLD_DP = 24
         private const val EXPANDED_SIDE_GUTTER_DP = 8
         private const val THUMB_SIZE_DP = 40
-        private const val FREEFORM_DRAG_THRESHOLD_DP = 64
-        private const val FREEFORM_SETTLE_DELAY_MS = 600L
     }
 
     /**
@@ -95,43 +90,6 @@ class BriefOverlay(private val ctx: Context) {
     private var expanded = false
     private val hideRunnable = Runnable { dismiss() }
 
-    /** So' um sinal de UI (mostrar ou nao a alca) - nao garante que a OEM honre o launch em Freeform. */
-    private val supportsFreeform: Boolean by lazy {
-        uiCtx.packageManager.hasSystemFeature(PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT)
-    }
-
-    /**
-     * O UserService do Shizuku roda FreeformUserService num processo
-     * separado com uid shell/root - so' la' dentro setLaunchWindowingMode
-     * nao e' bloqueado por hidden-API enforcement (confirmado por logcat
-     * que no processo normal do app da' NoSuchMethodException). Bind e'
-     * assincrono (via ServiceConnection) e cacheado; chamadas seguintes
-     * reusam o binder sem precisar subir o processo de novo.
-     */
-    private var freeformService: IFreeformService? = null
-    private var pendingFreeformRequest: Pair<PendingIntent, Rect>? = null
-
-    private val userServiceArgs by lazy {
-        Shizuku.UserServiceArgs(ComponentName(uiCtx.packageName, FreeformUserService::class.java.name))
-            .daemon(false)
-            .processNameSuffix("freeform")
-            .debuggable(false)
-            .version(BuildConfig.VERSION_CODE)
-    }
-
-    private val userServiceConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-            freeformService = IFreeformService.Stub.asInterface(binder)
-            val req = pendingFreeformRequest
-            pendingFreeformRequest = null
-            if (req != null) resolveFreeformRequest(req.first, req.second)
-        }
-
-        override fun onServiceDisconnected(name: ComponentName?) {
-            freeformService = null
-        }
-    }
-
     fun show(item: Item) = main.post {
         val v = view ?: inflate().also {
             wm.addView(it, params())
@@ -152,13 +110,7 @@ class BriefOverlay(private val ctx: Context) {
         if (current?.key == key) dismiss()
     }
 
-    fun destroy() = main.post {
-        dismiss()
-        if (freeformService != null) {
-            runCatching { Shizuku.unbindUserService(userServiceArgs, userServiceConnection, true) }
-            freeformService = null
-        }
-    }
+    fun destroy() = main.post { dismiss() }
 
     // ---------------------------------------------------------------- interno
 
@@ -188,6 +140,8 @@ class BriefOverlay(private val ctx: Context) {
                     val dx = Math.abs(e.rawX - downX)
                     when {
                         dy < -dp(SWIPE_THRESHOLD_DP) -> dismiss()          // swipe up
+                        dy > dp(EXPAND_DRAG_THRESHOLD_DP) && !expanded ->
+                            setExpanded(v, true)                          // arrasta pra baixo: expande
                         dx < dp(12) && Math.abs(dy) < dp(12) -> open()     // tap
                         else -> main.postDelayed(hideRunnable, DURATION_MS)
                     }
@@ -215,53 +169,17 @@ class BriefOverlay(private val ctx: Context) {
             } else false
         }
 
-        // Alca de arrastar (so' visivel na capsula colapsada, quando a ROM
-        // sinaliza suporte a Freeform). A area de toque (dragHandleTouchArea,
-        // 120x40dp) e' bem maior que a barrinha desenhada (32x4dp) - um alvo
-        // do tamanho da barrinha e' praticamente impossivel de acertar.
-        // Listener proprio, separado do da raiz, pra nao conflitar com o
-        // tap/swipe-up ja existente.
-        Log.d("BriefOverlay", "supportsFreeform=$supportsFreeform")
-        val handleArea = v.findViewById<View>(R.id.dragHandleTouchArea)
-        handleArea.visibility = if (!expanded && supportsFreeform) View.VISIBLE else View.GONE
-        var dragStartY = 0f
-        handleArea.setOnTouchListener { _, e ->
-            when (e.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    dragStartY = e.rawY
-                    main.removeCallbacks(hideRunnable)
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    v.translationY = (e.rawY - dragStartY).coerceAtLeast(0f)
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    val dy = e.rawY - dragStartY
-                    if (dy > dp(FREEFORM_DRAG_THRESHOLD_DP)) {
-                        Log.d("BriefOverlay", "drag threshold atingido (dy=$dy), tentando freeform")
-                        attemptFreeform(current)
-                    } else {
-                        Log.d("BriefOverlay", "drag abaixo do limiar (dy=$dy), voltando pra posicao")
-                        v.animate().translationY(0f).setDuration(120).start()
-                        main.postDelayed(hideRunnable, DURATION_MS)
-                    }
-                    true
-                }
-                MotionEvent.ACTION_CANCEL -> {
-                    v.animate().translationY(0f).setDuration(120).start()
-                    main.postDelayed(hideRunnable, DURATION_MS)
-                    true
-                }
-                else -> true
-            }
+        v.findViewById<TextView>(R.id.markReadButton).setOnClickListener {
+            markAsRead()
+            dismiss()
         }
+
         return v
     }
 
     private fun bind(v: View, item: Item) {
         val title = if (item.isGroup && item.conversationTitle != null)
-            "${item.title} \u00B7 ${item.conversationTitle}"   // "Fulano · Grupo"
+            "${item.title} · ${item.conversationTitle}"   // "Fulano · Grupo"
         else item.title
 
         v.findViewById<TextView>(R.id.title).text = title
@@ -270,7 +188,7 @@ class BriefOverlay(private val ctx: Context) {
             item.icon?.let { setImageIcon(it) }
         }
         v.findViewById<ImageView>(R.id.expandChevron).visibility =
-            if (item.replyAction != null) View.VISIBLE else View.GONE
+            if (item.replyAction != null || item.markAsReadAction != null) View.VISIBLE else View.GONE
 
         bindMessages(v, item)
     }
@@ -325,18 +243,18 @@ class BriefOverlay(private val ctx: Context) {
     private fun setExpanded(v: View, expand: Boolean) {
         expanded = expand
         val replyRow = v.findViewById<View>(R.id.replyRow)
+        val markReadButton = v.findViewById<TextView>(R.id.markReadButton)
         val editText = v.findViewById<EditText>(R.id.replyInput)
         val avatar = v.findViewById<ImageView>(R.id.avatar)
         val title = v.findViewById<TextView>(R.id.title)
         val text = v.findViewById<TextView>(R.id.text)
         val messageList = v.findViewById<View>(R.id.messageList)
-        val dragHandleArea = v.findViewById<View>(R.id.dragHandleTouchArea)
         val imm = uiCtx.getSystemService(InputMethodManager::class.java)
 
         v.findViewById<ImageView>(R.id.expandChevron).rotation = if (expand) 180f else 0f
-        replyRow.visibility = if (expand) View.VISIBLE else View.GONE
+        replyRow.visibility = if (expand && current?.replyAction != null) View.VISIBLE else View.GONE
+        markReadButton.visibility = if (expand && current?.markAsReadAction != null) View.VISIBLE else View.GONE
         messageList.visibility = if (expand) View.VISIBLE else View.GONE
-        dragHandleArea.visibility = if (!expand && supportsFreeform) View.VISIBLE else View.GONE
 
         val avatarSize = dp(if (expand) 48 else 32)
         avatar.layoutParams = avatar.layoutParams.apply {
@@ -364,8 +282,10 @@ class BriefOverlay(private val ctx: Context) {
 
         if (expand) {
             main.removeCallbacks(hideRunnable)
-            editText.requestFocus()
-            imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+            if (current?.replyAction != null) {
+                editText.requestFocus()
+                imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+            }
         } else {
             imm?.hideSoftInputFromWindow(editText.windowToken, 0)
             editText.text?.clear()
@@ -418,58 +338,14 @@ class BriefOverlay(private val ctx: Context) {
         }
     }
 
-    /**
-     * Tenta abrir o app de origem em Freeform de verdade, via Shizuku
-     * (FreeformUserService roda com uid shell/root - so' la' o
-     * setLaunchWindowingMode nao e' bloqueado por hidden-API enforcement,
-     * confirmado por logcat que no processo normal do app da'
-     * NoSuchMethodException). Reusa o contentIntent real da notificacao
-     * (mantem o deep-link pra conversa exata) em vez de montar um Intent
-     * com package/classe fixos.
-     *
-     * Assincrono quando precisa subir o processo do UserService pela
-     * primeira vez (bindUserService so' resolve via ServiceConnection);
-     * dismiss()/open() acontecem quando o resultado chega, nao aqui.
-     */
-    private fun attemptFreeform(item: Item?) {
-        val intent = item?.contentIntent
-        if (intent == null || !Shizuku.pingBinder() ||
-            Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED
-        ) {
-            Log.d("BriefOverlay", "attemptFreeform(): Shizuku indisponivel/sem permissao, abrindo normal")
-            open()
-            return
+    /** Dispara a action de "marcar como lida" da notificacao (sem RemoteInput). */
+    private fun markAsRead() {
+        val action = current?.markAsReadAction ?: return
+        try {
+            action.actionIntent.send()
+        } catch (e: PendingIntent.CanceledException) {
+            Log.w("BriefOverlay", "markAsRead(): PendingIntent cancelado", e)
         }
-
-        val bounds = wm.currentWindowMetrics.bounds
-        val marginW = (bounds.width() * 0.1).toInt()
-        val marginH = (bounds.height() * 0.1).toInt()
-        val launchRect = Rect(
-            bounds.left + marginW, bounds.top + marginH,
-            bounds.right - marginW, bounds.bottom - marginH
-        )
-
-        val cached = freeformService
-        if (cached != null) {
-            resolveFreeformRequest(intent, launchRect)
-        } else {
-            pendingFreeformRequest = intent to launchRect
-            Shizuku.bindUserService(userServiceArgs, userServiceConnection)
-        }
-    }
-
-    private fun resolveFreeformRequest(intent: PendingIntent, bounds: Rect) {
-        val ok = runCatching { freeformService?.launchFreeform(intent, bounds) }.getOrNull() ?: false
-        Log.d("BriefOverlay", "resolveFreeformRequest(): ok=$ok")
-        // "ok=true" so' significa que o intent.send() la' dentro nao lancou
-        // excecao - NAO significa que a janela realmente apareceu (ja
-        // confirmado por logcat: a task pode ficar isVisible=false mesmo com
-        // ok=true). Sempre chama o open() normal em seguida (nunca deixa o
-        // usuario sem resposta), mas com uma folga: testes mostraram que o
-        // open() as vezes resume a task ANTES dela terminar de assumir o
-        // modo Freeform, abrindo em tela cheia por pura corrida - dar tempo
-        // pro ActivityTaskManager assentar reduz essa inconsistencia.
-        main.postDelayed({ open() }, FREEFORM_SETTLE_DELAY_MS)
     }
 
     private fun open() {

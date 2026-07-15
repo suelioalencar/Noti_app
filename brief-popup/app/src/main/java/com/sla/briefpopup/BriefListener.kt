@@ -115,6 +115,7 @@ class BriefListener : NotificationListenerService() {
                     .getCharSequence("android.conversationTitle")?.toString(),
                 contentIntent = n.contentIntent,
                 replyAction = findReplyAction(n),
+                markAsReadAction = findMarkAsReadAction(n),
                 messages = recentMessages(n)
             )
         )
@@ -189,6 +190,17 @@ class BriefListener : NotificationListenerService() {
     private fun findReplyAction(n: Notification): Notification.Action? =
         n.actions?.firstOrNull { a ->
             a.remoteInputs?.isNotEmpty() == true
+        }
+
+    /**
+     * semanticAction e' a forma robusta (independe de idioma) de achar a
+     * action de "marcar como lida" - apps que suportam Wear OS/Android Auto
+     * (WhatsApp inclui) marcam suas actions com esse identificador
+     * semantico em vez de so' um titulo de texto.
+     */
+    private fun findMarkAsReadAction(n: Notification): Notification.Action? =
+        n.actions?.firstOrNull { a ->
+            a.semanticAction == Notification.Action.SEMANTIC_ACTION_MARK_AS_READ
         }
 
     override fun onDestroy() {
