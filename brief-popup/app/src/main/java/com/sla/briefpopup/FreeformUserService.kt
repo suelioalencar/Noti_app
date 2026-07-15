@@ -54,6 +54,17 @@ class FreeformUserService : IFreeformService.Stub() {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
             }
             intent.send(null, 0, fillIn, null, null, null, options.toBundle())
+
+            // EXPERIMENTAL: o primeiro send() aceita o launch e muda o
+            // windowing mode (confirmado por logcat: MotoFreeForm reage,
+            // ActivityRecord e' criado), mas a task fica isVisible=false -
+            // nao vem pra frente sozinha quando disparada de um processo
+            // shell sem UI "de verdade" por tras. Reenviar pro MESMO alvo
+            // logo em seguida e' "resumir uma task existente" em vez de
+            // "criar uma task nova" - caminho mais direto no
+            // ActivityTaskManager, na esperanca de que isso force o foco.
+            Thread.sleep(150)
+            intent.send(null, 0, fillIn, null, null, null, options.toBundle())
             true
         } catch (e: Throwable) {
             Log.w("FreeformUserService", "launchFreeform() falhou mesmo com uid shell", e)
