@@ -52,6 +52,7 @@ class BriefOverlay(private val ctx: Context) {
 
     data class Item(
         val key: String,
+        val conversationKey: String,
         val title: String,
         val text: String,
         val icon: Icon?,
@@ -99,12 +100,29 @@ class BriefOverlay(private val ctx: Context) {
             it.animate().alpha(1f).translationY(0f).setDuration(180).start()
         }
         view = v
-        if (expanded) setExpanded(v, false)   // conteudo novo: volta pra capsula compacta
+
+        // Mensagem nova da MESMA conversa enquanto expandido: fica expandido,
+        // so' atualiza o conteudo (o usuario pode estar lendo/respondendo -
+        // recolher do nada perderia o rascunho e a leitura). Conversa
+        // diferente (ou colapsado) segue o fluxo normal: colapsa antes de
+        // trocar o conteudo.
+        val sameConversationExpanded = expanded && current?.conversationKey == item.conversationKey
+        if (expanded && !sameConversationExpanded) setExpanded(v, false)
         current = item
         bind(v, item)
 
-        main.removeCallbacks(hideRunnable)
-        main.postDelayed(hideRunnable, DURATION_MS)
+        if (sameConversationExpanded) {
+            // setExpanded() nao roda nesse caminho (de proposito, pra nao
+            // reiniciar foco/teclado no meio de uma resposta) - resincroniza
+            // so' a visibilidade das acoes, que pode ter mudado com o item novo.
+            v.findViewById<View>(R.id.replyRow).visibility =
+                if (item.replyAction != null) View.VISIBLE else View.GONE
+            v.findViewById<View>(R.id.markReadButton).visibility =
+                if (item.markAsReadAction != null) View.VISIBLE else View.GONE
+        } else {
+            main.removeCallbacks(hideRunnable)
+            main.postDelayed(hideRunnable, DURATION_MS)
+        }
     }
 
     fun dismissIfKey(key: String) = main.post {

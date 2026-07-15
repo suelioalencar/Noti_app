@@ -107,6 +107,7 @@ class BriefListener : NotificationListenerService() {
         overlay.show(
             BriefOverlay.Item(
                 key = sbn.key,
+                conversationKey = convKey,
                 title = sender.toString(),
                 text = body.toString(),
                 icon = icon,
