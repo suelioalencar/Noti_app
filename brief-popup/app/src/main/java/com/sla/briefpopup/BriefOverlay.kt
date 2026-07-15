@@ -72,6 +72,7 @@ class BriefOverlay(private val ctx: Context) {
         private const val EXPANDED_SIDE_GUTTER_DP = 8
         private const val THUMB_SIZE_DP = 40
         private const val FREEFORM_DRAG_THRESHOLD_DP = 64
+        private const val FREEFORM_SETTLE_DELAY_MS = 400L
     }
 
     /**
@@ -459,16 +460,16 @@ class BriefOverlay(private val ctx: Context) {
 
     private fun resolveFreeformRequest(intent: PendingIntent, bounds: Rect) {
         val ok = runCatching { freeformService?.launchFreeform(intent, bounds) }.getOrNull() ?: false
-        main.post {
-            // "ok=true" so' significa que o intent.send() la' dentro nao lancou
-            // excecao - NAO significa que a janela realmente apareceu (ja
-            // confirmado por logcat: a task pode ficar isVisible=false mesmo
-            // com ok=true). Sempre chama o open() normal depois, sucesso ou
-            // nao: na pior das hipoteses abre em tela cheia (como sempre
-            // funcionou), na melhor resume a task ja marcada freeform.
-            Log.d("BriefOverlay", "resolveFreeformRequest(): ok=$ok")
-            open()
-        }
+        Log.d("BriefOverlay", "resolveFreeformRequest(): ok=$ok")
+        // "ok=true" so' significa que o intent.send() la' dentro nao lancou
+        // excecao - NAO significa que a janela realmente apareceu (ja
+        // confirmado por logcat: a task pode ficar isVisible=false mesmo com
+        // ok=true). Sempre chama o open() normal em seguida (nunca deixa o
+        // usuario sem resposta), mas com uma folga: testes mostraram que o
+        // open() as vezes resume a task ANTES dela terminar de assumir o
+        // modo Freeform, abrindo em tela cheia por pura corrida - dar tempo
+        // pro ActivityTaskManager assentar reduz essa inconsistencia.
+        main.postDelayed({ open() }, FREEFORM_SETTLE_DELAY_MS)
     }
 
     private fun open() {

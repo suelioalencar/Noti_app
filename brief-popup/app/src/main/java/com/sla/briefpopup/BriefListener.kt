@@ -39,6 +39,28 @@ class BriefListener : NotificationListenerService() {
 
     private val overlay by lazy { BriefOverlay(this) }
 
+    /**
+     * Sem isso, toda vez que o listener (re)conecta - reinstalar o app,
+     * reiniciar o servico, etc. - o sistema reproduz onNotificationPosted
+     * pra CADA notificacao ja ativa na bandeja, nao so as novas. Isso fazia
+     * a capsula desfilar por todas as conversas pendentes antigas antes de
+     * finalmente mostrar a mais recente. Marca o estado atual como "ja
+     * visto" na conexao, sem mostrar popup nenhum - so' mensagem POSTERIOR
+     * a essa marca conta como nova.
+     */
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        runCatching {
+            for (sbn in activeNotifications) {
+                val n = sbn.notification ?: continue
+                if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) continue
+                val convKey = n.shortcutId ?: sbn.tag ?: sbn.key
+                val timestamp = latestMessage(n)?.getLong("time") ?: n.`when`
+                lastShown[convKey] = timestamp
+            }
+        }
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val n = sbn.notification ?: return
 
