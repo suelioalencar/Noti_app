@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Estilo iPhone: ja' e' o "card" full-width desde o inicio (sem capsula
+  colapsada separada). O chevron so' revela historico/resposta, nao muda
+  a largura da janela.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_iphone_card"
+    android:elevation="12dp"
+    android:padding="14dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:id="@+id/avatar"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:scaleType="centerCrop"
+            android:layout_marginEnd="10dp"
+            android:contentDescription="@null" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:textColor="#FF1C1C1E"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="2"
+                android:ellipsize="end"
+                android:textColor="#FF3C3C43"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/expandChevron"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:padding="8dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_chevron_down_dark"
+            android:contentDescription="@null" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/messageList"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="8dp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/replyRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="8dp"
+        android:visibility="gone">
+
+        <EditText
+            android:id="@+id/replyInput"
+            android:theme="@android:style/Theme.Material.Light"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:background="@null"
+            android:hint="Responder..."
+            android:textColorHint="#993C3C43"
+            android:textColor="#FF1C1C1E"
+            android:textSize="14sp"
+            android:maxLines="1"
+            android:inputType="text"
+            android:imeOptions="actionSend" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/markReadButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:layout_marginTop="8dp"
+        android:padding="4dp"
+        android:text="Marcar como lida"
+        android:textColor="#FF007AFF"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+</LinearLayout>

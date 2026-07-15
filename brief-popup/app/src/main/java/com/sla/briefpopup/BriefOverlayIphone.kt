@@ -1,22 +1,19 @@
 package com.sla.briefpopup
 
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
-import android.animation.ValueAnimator
 import android.app.ActivityOptions
-import android.app.Notification
 import android.app.PendingIntent
 import android.app.RemoteInput
 import android.content.Context
 import android.content.Intent
-import android.graphics.PixelFormat
 import android.graphics.Outline
+import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.util.Size
 import android.view.Display
 import android.view.Gravity
@@ -25,41 +22,34 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.ViewTreeObserver
-import android.view.animation.DecelerateInterpolator
+import android.view.WindowManager
+import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
-import android.util.Log
-import android.view.WindowManager
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * Capsula fina no topo, estilo "pop-up breve" da One UI (Samsung).
+ * Card full-width estilo banner de notificacao do iOS - ja' chega "aberto"
+ * (sem capsula colapsada), caindo de cima pra baixo com uma leve quicada.
  * - some sozinha depois de DURATION_MS
- * - notificacao nova durante a exibicao: troca o conteudo e reinicia o timer
  * - toque: abre a conversa
  * - swipe para cima: dispensa
- * - arrasta pra baixo: expande
+ * - chevron/arrasta pra baixo: revela historico + resposta
  */
-class BriefOverlay(private val ctx: Context) : NotificationOverlay {
+class BriefOverlayIphone(private val ctx: Context) : NotificationOverlay {
 
     companion object {
         private const val DURATION_MS = 5000L
         private const val SWIPE_THRESHOLD_DP = 24
         private const val EXPAND_DRAG_THRESHOLD_DP = 24
-        private const val EXPANDED_SIDE_GUTTER_DP = 8
+        private const val SIDE_GUTTER_DP = 8
         private const val THUMB_SIZE_DP = 40
-        /** Largura do "ponto" inicial - avatar (32dp) + respiro nas duas pontas, pra parecer um circulo. */
-        private const val DOT_WIDTH_DP = 56
+        private const val DROP_START_OFFSET_DP = 300
     }
 
-    /**
-     * O Context de um Service NAO e' um UI context. Pedir WindowManager dele
-     * gera warning e resolve recursos com a configuracao errada no Android 12+.
-     * O correto e' um window context amarrado ao display + tipo de janela.
-     */
     private val uiCtx: Context = ctx
         .createDisplayContext(
             ctx.getSystemService(DisplayManager::class.java)
@@ -76,29 +66,23 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
     private val hideRunnable = Runnable { dismiss() }
 
     override fun show(item: NotificationItem) = main.post {
-        var isNewView = false
         val v = view ?: inflate().also {
             wm.addView(it, params())
-            isNewView = true
+            it.translationY = -dp(DROP_START_OFFSET_DP).toFloat()
+            it.animate()
+                .translationY(0f)
+                .setInterpolator(OvershootInterpolator(1.1f))
+                .setDuration(420)
+                .start()
         }
         view = v
 
-        // Mensagem nova da MESMA conversa enquanto expandido: fica expandido,
-        // so' atualiza o conteudo (o usuario pode estar lendo/respondendo -
-        // recolher do nada perderia o rascunho e a leitura). Conversa
-        // diferente (ou colapsado) segue o fluxo normal: colapsa antes de
-        // trocar o conteudo.
         val sameConversationExpanded = expanded && current?.conversationKey == item.conversationKey
         if (expanded && !sameConversationExpanded) setExpanded(v, false)
         current = item
         bind(v, item)
 
-        if (isNewView) animateDotOpen(v)
-
         if (sameConversationExpanded) {
-            // setExpanded() nao roda nesse caminho (de proposito, pra nao
-            // reiniciar foco/teclado no meio de uma resposta) - resincroniza
-            // so' a visibilidade das acoes, que pode ter mudado com o item novo.
             v.findViewById<View>(R.id.replyRow).visibility =
                 if (item.replyAction != null) View.VISIBLE else View.GONE
             v.findViewById<View>(R.id.markReadButton).visibility =
@@ -107,56 +91,6 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
             main.removeCallbacks(hideRunnable)
             main.postDelayed(hideRunnable, DURATION_MS)
         }
-    }
-
-    /**
-     * Chega como um "ponto" (so' o avatar, largura de circulo) no centro e
-     * abre pros dois lados - igual o heads-up nativo da One UI, em vez de
-     * so' aparecer com fade. Anima a LARGURA da janela (nao scaleX) pra nao
-     * esticar/espremer o avatar durante a transicao.
-     */
-    private fun animateDotOpen(v: View) {
-        val title = v.findViewById<View>(R.id.title)
-        val text = v.findViewById<View>(R.id.text)
-        val chevron = v.findViewById<View>(R.id.expandChevron)
-        title.alpha = 0f
-        text.alpha = 0f
-        chevron.alpha = 0f
-
-        val vto = v.viewTreeObserver
-        vto.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
-            override fun onGlobalLayout() {
-                vto.removeOnGlobalLayoutListener(this)
-                val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-                val fullWidth = v.width
-                val dotWidth = dp(DOT_WIDTH_DP).coerceAtMost(fullWidth)
-
-                lp.width = dotWidth
-                runCatching { wm.updateViewLayout(v, lp) }
-
-                ValueAnimator.ofInt(dotWidth, fullWidth).apply {
-                    duration = 260
-                    interpolator = DecelerateInterpolator()
-                    addUpdateListener { anim ->
-                        lp.width = anim.animatedValue as Int
-                        runCatching { wm.updateViewLayout(v, lp) }
-                    }
-                    addListener(object : AnimatorListenerAdapter() {
-                        override fun onAnimationEnd(animation: Animator) {
-                            // Volta pra WRAP_CONTENT - senao fica preso na largura
-                            // do PRIMEIRO texto, cortando/sobrando espaco quando
-                            // uma mensagem seguinte for mais curta/longa.
-                            lp.width = WindowManager.LayoutParams.WRAP_CONTENT
-                            runCatching { wm.updateViewLayout(v, lp) }
-                        }
-                    })
-                    start()
-                }
-                title.animate().alpha(1f).setStartDelay(80).setDuration(160).start()
-                text.animate().alpha(1f).setStartDelay(80).setDuration(160).start()
-                chevron.animate().alpha(1f).setStartDelay(80).setDuration(160).start()
-            }
-        })
     }
 
     override fun dismissIfKey(key: String) = main.post {
@@ -168,7 +102,7 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
     // ---------------------------------------------------------------- interno
 
     private fun inflate(): View {
-        val v = LayoutInflater.from(uiCtx).inflate(R.layout.brief_popup, null)
+        val v = LayoutInflater.from(uiCtx).inflate(R.layout.brief_popup_iphone, null)
 
         v.findViewById<ImageView>(R.id.avatar).apply {
             clipToOutline = true
@@ -185,17 +119,16 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
                     downY = e.rawY; downX = e.rawX
-                    main.removeCallbacks(hideRunnable)   // pausa o timer enquanto toca
+                    main.removeCallbacks(hideRunnable)
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     val dy = e.rawY - downY
                     val dx = Math.abs(e.rawX - downX)
                     when {
-                        dy < -dp(SWIPE_THRESHOLD_DP) -> dismiss()          // swipe up
-                        dy > dp(EXPAND_DRAG_THRESHOLD_DP) && !expanded ->
-                            setExpanded(v, true)                          // arrasta pra baixo: expande
-                        dx < dp(12) && Math.abs(dy) < dp(12) -> open()     // tap
+                        dy < -dp(SWIPE_THRESHOLD_DP) -> dismiss()
+                        dy > dp(EXPAND_DRAG_THRESHOLD_DP) && !expanded -> setExpanded(v, true)
+                        dx < dp(12) && Math.abs(dy) < dp(12) -> open()
                         else -> main.postDelayed(hideRunnable, DURATION_MS)
                     }
                     true
@@ -232,7 +165,7 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
 
     private fun bind(v: View, item: NotificationItem) {
         val title = if (item.isGroup && item.conversationTitle != null)
-            "${item.title} · ${item.conversationTitle}"   // "Fulano · Grupo"
+            "${item.title} · ${item.conversationTitle}"
         else item.title
 
         v.findViewById<TextView>(R.id.title).text = title
@@ -246,13 +179,12 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
         bindMessages(v, item)
     }
 
-    /** Preenche o banner expandido com ate 3 mensagens (bind() roda sempre, e' barato). */
     private fun bindMessages(v: View, item: NotificationItem) {
         val messageList = v.findViewById<LinearLayout>(R.id.messageList)
-        messageList.removeAllViews()   // view e' reaproveitada entre notificacoes - critico
+        messageList.removeAllViews()
         for (m in item.messages) {
             val row = LayoutInflater.from(uiCtx)
-                .inflate(R.layout.brief_message_row, messageList, false)
+                .inflate(R.layout.brief_message_row_iphone, messageList, false)
             val senderTv = row.findViewById<TextView>(R.id.msgSender)
             val textTv = row.findViewById<TextView>(R.id.msgText)
             val thumb = row.findViewById<ImageView>(R.id.msgThumb)
@@ -277,7 +209,6 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
         }
     }
 
-    /** Thumbnail fora da main thread; descarta resultado se o popup ja mudou de conteudo. */
     private fun loadThumbnail(iv: ImageView, uri: Uri, forKey: String) {
         Thread {
             val bmp = runCatching {
@@ -292,15 +223,12 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
         }.start()
     }
 
-    /** Expande em estilo banner full-width com as ultimas mensagens e resposta, ou volta a' capsula compacta. */
+    /** Ja' e' full-width desde o inicio - expandir so' revela historico/resposta, nao muda largura. */
     private fun setExpanded(v: View, expand: Boolean) {
         expanded = expand
         val replyRow = v.findViewById<View>(R.id.replyRow)
         val markReadButton = v.findViewById<TextView>(R.id.markReadButton)
         val editText = v.findViewById<EditText>(R.id.replyInput)
-        val avatar = v.findViewById<ImageView>(R.id.avatar)
-        val title = v.findViewById<TextView>(R.id.title)
-        val text = v.findViewById<TextView>(R.id.text)
         val messageList = v.findViewById<View>(R.id.messageList)
         val imm = uiCtx.getSystemService(InputMethodManager::class.java)
 
@@ -309,29 +237,7 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
         markReadButton.visibility = if (expand && current?.markAsReadAction != null) View.VISIBLE else View.GONE
         messageList.visibility = if (expand) View.VISIBLE else View.GONE
 
-        val avatarSize = dp(if (expand) 48 else 32)
-        avatar.layoutParams = avatar.layoutParams.apply {
-            width = avatarSize
-            height = avatarSize
-        }
-
-        val maxWidth = if (expand)
-            wm.currentWindowMetrics.bounds.width() - dp(EXPANDED_SIDE_GUTTER_DP * 2 + 80)
-        else dp(240)
-        title.maxWidth = maxWidth
-        text.maxWidth = maxWidth
-        title.textSize = if (expand) 15f else 13f
-        text.textSize = if (expand) 15f else 13f
-        text.isSingleLine = !expand
-        text.maxLines = if (expand) 6 else 1
-        text.ellipsize = if (expand) null else android.text.TextUtils.TruncateAt.END
-
-        // Janela precisa virar focavel pra o EditText aceitar teclado (do
-        // contrario o toque nela nem chega no IME - janela overlay comum e'
-        // FLAG_NOT_FOCUSABLE de proposito, pra nao roubar foco da tela por tras)
-        // e virar full-width pro banner expandido; as duas coisas mudam
-        // WindowManager.LayoutParams, entao ficam numa unica chamada a updateViewLayout.
-        applyExpandedWindowState(v, expand)
+        applyFocusable(v, expand)
 
         if (expand) {
             main.removeCallbacks(hideRunnable)
@@ -346,38 +252,16 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
         }
     }
 
-    /**
-     * Alterna foco (pro EditText aceitar teclado) e largura da janela
-     * (capsula centralizada <-> banner quase full-width) numa unica
-     * chamada a updateViewLayout.
-     */
-    private fun applyExpandedWindowState(v: View, expand: Boolean) {
+    private fun applyFocusable(v: View, focusable: Boolean) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        lp.flags = if (expand) {
+        lp.flags = if (focusable) {
             lp.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
         } else {
             lp.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         }
-        if (expand) {
-            val screenW = wm.currentWindowMetrics.bounds.width()
-            lp.width = screenW - dp(EXPANDED_SIDE_GUTTER_DP * 2)
-            lp.gravity = Gravity.TOP
-        } else {
-            lp.width = WindowManager.LayoutParams.WRAP_CONTENT
-            lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        }
         runCatching { wm.updateViewLayout(v, lp) }
     }
 
-    /**
-     * Chamar requestFocus()/showSoftInput() logo depois de tirar
-     * FLAG_NOT_FOCUSABLE nao funciona de forma confiavel: o
-     * updateViewLayout() que muda a flag e' assincrono (round-trip ate' o
-     * WindowManagerService), entao a janela ainda pode nao ter foco de
-     * verdade no momento em que pedimos o teclado - o EditText fica com
-     * foco "local" mas o IME nao aparece ate' o usuario tocar nele. Espera
-     * o evento real de foco da janela antes de mostrar o teclado.
-     */
     private fun showKeyboardWhenFocused(v: View, editText: EditText, imm: InputMethodManager?) {
         if (v.hasWindowFocus()) {
             editText.requestFocus()
@@ -395,13 +279,11 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
         })
     }
 
-    /** Preenche o RemoteInput da action e dispara - normalmente um Broadcast/Service
-     * do proprio app (nao uma Activity), entao nao esbarra no bloqueio de BAL. */
     private fun sendReply(text: CharSequence) {
         val action = current?.replyAction ?: return
         val remoteInputs = action.remoteInputs
         if (remoteInputs == null || remoteInputs.isEmpty()) {
-            Log.w("BriefOverlay", "sendReply(): action sem RemoteInput")
+            Log.w("BriefOverlayIphone", "sendReply(): action sem RemoteInput")
             return
         }
         val results = Bundle().apply {
@@ -412,17 +294,16 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
         try {
             action.actionIntent.send(uiCtx, 0, fillIn)
         } catch (e: PendingIntent.CanceledException) {
-            Log.w("BriefOverlay", "sendReply(): PendingIntent cancelado", e)
+            Log.w("BriefOverlayIphone", "sendReply(): PendingIntent cancelado", e)
         }
     }
 
-    /** Dispara a action de "marcar como lida" da notificacao (sem RemoteInput). */
     private fun markAsRead() {
         val action = current?.markAsReadAction ?: return
         try {
             action.actionIntent.send()
         } catch (e: PendingIntent.CanceledException) {
-            Log.w("BriefOverlay", "markAsRead(): PendingIntent cancelado", e)
+            Log.w("BriefOverlayIphone", "markAsRead(): PendingIntent cancelado", e)
         }
     }
 
@@ -430,14 +311,11 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
         val intent = current?.contentIntent
         dismiss()
         if (intent == null) {
-            Log.w("BriefOverlay", "open(): contentIntent e' null, nada para abrir")
+            Log.w("BriefOverlayIphone", "open(): contentIntent e' null, nada para abrir")
             return
         }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                // Opt-in do lado do remetente (nos). Sem isso, o BAL so' considera
-                // o lado do criador do PendingIntent (ex: WhatsApp), que nunca
-                // opta in - e' exatamente o bloqueio que vimos no dumpsys/logcat.
                 val options = ActivityOptions.makeBasic()
                 options.setPendingIntentBackgroundActivityStartMode(
                     ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
@@ -447,14 +325,14 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
                 intent.send()
             }
         } catch (e: PendingIntent.CanceledException) {
-            Log.w("BriefOverlay", "open(): PendingIntent cancelado", e)
+            Log.w("BriefOverlayIphone", "open(): PendingIntent cancelado", e)
         }
     }
 
     private fun dismiss() {
         main.removeCallbacks(hideRunnable)
         val v = view ?: return
-        v.animate().alpha(0f).translationY(-dp(16).toFloat()).setDuration(140)
+        v.animate().alpha(0f).translationY(-dp(40).toFloat()).setDuration(180)
             .withEndAction {
                 runCatching { wm.removeView(v) }
                 view = null
@@ -471,7 +349,8 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            gravity = Gravity.TOP
+            width = wm.currentWindowMetrics.bounds.width() - dp(SIDE_GUTTER_DP * 2)
             y = statusBarHeight() + dp(6)
         }
 

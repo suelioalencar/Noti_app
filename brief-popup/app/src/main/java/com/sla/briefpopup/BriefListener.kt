@@ -32,7 +32,26 @@ class BriefListener : NotificationListenerService() {
     /** chave da conversa -> timestamp da ultima mensagem ja' exibida */
     private val lastShown = HashMap<String, Long>()
 
-    private val overlay by lazy { BriefOverlay(this) }
+    private var overlay: NotificationOverlay? = null
+    private var overlayStyle: NotificationStyle? = null
+
+    /**
+     * Resolve o overlay do estilo atual, trocando (e destruindo o anterior)
+     * se o usuario mudou a preferencia desde a ultima notificacao - assim
+     * a troca de estilo vale sem precisar reiniciar o servico.
+     */
+    private fun currentOverlay(): NotificationOverlay {
+        val style = StyleStore.get(this)
+        if (overlay == null || overlayStyle != style) {
+            overlay?.destroy()
+            overlay = when (style) {
+                NotificationStyle.SAMSUNG -> BriefOverlay(this)
+                NotificationStyle.IPHONE -> BriefOverlayIphone(this)
+            }
+            overlayStyle = style
+        }
+        return overlay!!
+    }
 
     /**
      * Sem isso, toda vez que o listener (re)conecta - reinstalar o app,
@@ -99,8 +118,8 @@ class BriefListener : NotificationListenerService() {
         // 5. Avatar: largeIcon (o dump mostra BITMAP 135x135); cai para o smallIcon.
         val icon = n.getLargeIcon() ?: n.smallIcon
 
-        overlay.show(
-            BriefOverlay.Item(
+        currentOverlay().show(
+            NotificationItem(
                 key = sbn.key,
                 conversationKey = convKey,
                 title = sender.toString(),
@@ -123,7 +142,7 @@ class BriefListener : NotificationListenerService() {
         if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0) {
             lastShown.remove(convKey)
         }
-        overlay.dismissIfKey(sbn.key)
+        overlay?.dismissIfKey(sbn.key)
     }
 
     /**
@@ -147,7 +166,7 @@ class BriefListener : NotificationListenerService() {
      * abaixo) contra uma mensagem real com figurinha/imagem, depois remover
      * o Log.d.
      */
-    private fun recentMessages(n: Notification, max: Int = 3): List<BriefOverlay.MessageLine> {
+    private fun recentMessages(n: Notification, max: Int = 3): List<MessageLine> {
         val arr = messagesArray(n.extras) ?: return emptyList()
         return arr.filterIsInstance<Bundle>()
             .sortedByDescending { it.getLong("time") }
@@ -162,7 +181,7 @@ class BriefListener : NotificationListenerService() {
                 if (uri != null) {
                     Log.d("BriefListener", "msg bundle keys (attachment): ${b.keySet()}")
                 }
-                BriefOverlay.MessageLine(
+                MessageLine(
                     sender = b.getCharSequence("sender"),
                     text = b.getCharSequence("text"),
                     timeMs = b.getLong("time"),
@@ -200,7 +219,7 @@ class BriefListener : NotificationListenerService() {
         }
 
     override fun onDestroy() {
-        overlay.destroy()
+        overlay?.destroy()
         super.onDestroy()
     }
 }
