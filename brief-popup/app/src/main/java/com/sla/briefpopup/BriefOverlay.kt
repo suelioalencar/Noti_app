@@ -125,16 +125,22 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
         text.alpha = 0f
         chevron.alpha = 0f
 
+        var started = false
         val vto = v.viewTreeObserver
         vto.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
                 // A view pode ja' ter sido removida (dismiss automatico, troca
                 // rapida de conteudo) antes desse callback disparar - chamar
                 // remove numa ViewTreeObserver de view destacada lanca
-                // IllegalStateException ("not alive"). So' segue se a view
-                // ainda estiver na janela.
+                // IllegalStateException ("not alive"). Se a remocao falhar
+                // silenciosamente, o proprio updateViewLayout() logo abaixo
+                // pode disparar esse callback DE NOVO - sem a trava `started`,
+                // a segunda chamada capturaria fullWidth ja' encolhido pro
+                // tamanho do ponto, virando uma animacao de dotWidth pra
+                // dotWidth (nunca abre). So' roda uma vez.
                 runCatching { vto.removeOnGlobalLayoutListener(this) }
-                if (!v.isAttachedToWindow) return
+                if (started || !v.isAttachedToWindow) return
+                started = true
                 val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
                 val fullWidth = v.width
                 val dotWidth = dp(DOT_WIDTH_DP).coerceAtMost(fullWidth)
