@@ -72,7 +72,7 @@ class BriefOverlay(private val ctx: Context) {
         private const val EXPANDED_SIDE_GUTTER_DP = 8
         private const val THUMB_SIZE_DP = 40
         private const val FREEFORM_DRAG_THRESHOLD_DP = 64
-        private const val FREEFORM_SETTLE_DELAY_MS = 400L
+        private const val FREEFORM_SETTLE_DELAY_MS = 600L
     }
 
     /**

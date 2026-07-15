@@ -52,15 +52,14 @@ class FreeformUserService : IFreeformService.Stub() {
             // janela aparecer de verdade).
             intent.send(null, 0, null, null, null, null, options.toBundle())
 
-            // EXPERIMENTAL: o primeiro send() aceita o launch e muda o
-            // windowing mode (confirmado por logcat: MotoFreeForm reage,
-            // ActivityRecord e' criado), mas a task fica isVisible=false -
-            // nao vem pra frente sozinha quando disparada de um processo
-            // shell sem UI "de verdade" por tras. Reenviar pro MESMO alvo
-            // logo em seguida e' "resumir uma task existente" em vez de
-            // "criar uma task nova" - caminho mais direto no
-            // ActivityTaskManager, na esperanca de que isso force o foco.
-            Thread.sleep(150)
+            // O double-send funciona ATE' AS VEZES (confirmado por logcat: em
+            // parte das tentativas o MotoFreeForm reage e a janela aparece
+            // antes ate' do open() de seguranca disparar) - mas e' inconsistente:
+            // testes mostraram tentativas onde nem o FreeformTaskListener nem o
+            // MotoFreeForm reagem, como se o primeiro send() nao tivesse dado
+            // tempo da task assentar antes do segundo. 150ms parece curto
+            // demais as vezes; aumentando a folga.
+            Thread.sleep(300)
             intent.send(null, 0, null, null, null, null, options.toBundle())
             true
         } catch (e: Throwable) {

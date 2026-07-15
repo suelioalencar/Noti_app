@@ -15,7 +15,7 @@ android {
         // O Shizuku usa esse numero pra saber se precisa derrubar e subir de
         // novo o processo do UserService (senao reaproveita o antigo com
         // codigo desatualizado). Subir a cada mudanca em FreeformUserService.
-        versionCode = 5
+        versionCode = 6
         versionName = "1.0"
     }
 
