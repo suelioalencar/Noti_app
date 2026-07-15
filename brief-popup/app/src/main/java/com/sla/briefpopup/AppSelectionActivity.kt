@@ -50,9 +50,9 @@ class AppSelectionActivity : Activity() {
 
         setContentView(ListView(this).apply {
             adapter = AppAdapter()
-            divider = ColorDrawable(resources.getColor(R.color.surface_dark, theme))
+            divider = ColorDrawable(resources.getColor(R.color.surface, theme))
             dividerHeight = dp(1)
-            setBackgroundColor(resources.getColor(R.color.bg_dark, theme))
+            setBackgroundColor(resources.getColor(R.color.bg, theme))
         })
     }
 

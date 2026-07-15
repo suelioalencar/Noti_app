@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modo claro (padrao) - a variante -night fica em values-night/styles.xml. -->
 <resources>
-    <style name="AppTheme" parent="android:Theme.Material.Light">
+    <style name="AppTheme" parent="android:Theme.Material">
         <item name="android:colorPrimary">@color/surface</item>
         <item name="android:colorPrimaryDark">@color/bg</item>
         <item name="android:colorAccent">@color/accent</item>
@@ -10,6 +9,5 @@
         <item name="android:textColorSecondary">@color/text_secondary</item>
     </style>
 
-    <!-- Cursor/handles de selecao do EditText de resposta - Light no modo claro. -->
-    <style name="ReplyInputTheme" parent="android:Theme.Material.Light" />
+    <style name="ReplyInputTheme" parent="android:Theme.Material" />
 </resources>

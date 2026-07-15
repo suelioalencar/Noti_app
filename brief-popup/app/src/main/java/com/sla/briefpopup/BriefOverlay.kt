@@ -128,7 +128,13 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
         val vto = v.viewTreeObserver
         vto.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
-                vto.removeOnGlobalLayoutListener(this)
+                // A view pode ja' ter sido removida (dismiss automatico, troca
+                // rapida de conteudo) antes desse callback disparar - chamar
+                // remove numa ViewTreeObserver de view destacada lanca
+                // IllegalStateException ("not alive"). So' segue se a view
+                // ainda estiver na janela.
+                runCatching { vto.removeOnGlobalLayoutListener(this) }
+                if (!v.isAttachedToWindow) return
                 val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
                 val fullWidth = v.width
                 val dotWidth = dp(DOT_WIDTH_DP).coerceAtMost(fullWidth)
@@ -392,9 +398,10 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
         vto.addOnWindowFocusChangeListener(object : ViewTreeObserver.OnWindowFocusChangeListener {
             override fun onWindowFocusChanged(hasFocus: Boolean) {
                 if (!hasFocus) return
+                runCatching { vto.removeOnWindowFocusChangeListener(this) }
+                if (!v.isAttachedToWindow) return
                 editText.requestFocus()
                 imm?.showSoftInput(editText, InputMethodManager.SHOW_FORCED)
-                vto.removeOnWindowFocusChangeListener(this)
             }
         })
     }

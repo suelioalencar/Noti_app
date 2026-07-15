@@ -38,7 +38,7 @@
                 android:layout_height="wrap_content"
                 android:singleLine="true"
                 android:ellipsize="end"
-                android:textColor="#FF1C1C1E"
+                android:textColor="@color/notif_text_primary"
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
@@ -48,7 +48,7 @@
                 android:layout_height="wrap_content"
                 android:maxLines="2"
                 android:ellipsize="end"
-                android:textColor="#FF3C3C43"
+                android:textColor="@color/notif_text_secondary"
                 android:textSize="14sp" />
         </LinearLayout>
 
@@ -58,7 +58,7 @@
             android:layout_height="32dp"
             android:padding="8dp"
             android:scaleType="fitCenter"
-            android:src="@drawable/ic_chevron_down_dark"
+            android:src="@drawable/ic_chevron_down"
             android:contentDescription="@null" />
     </LinearLayout>
 
@@ -81,14 +81,14 @@
 
         <EditText
             android:id="@+id/replyInput"
-            android:theme="@android:style/Theme.Material.Light"
+            android:theme="@style/ReplyInputTheme"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
             android:background="@null"
             android:hint="Responder..."
-            android:textColorHint="#993C3C43"
-            android:textColor="#FF1C1C1E"
+            android:textColorHint="@color/notif_text_secondary_soft"
+            android:textColor="@color/notif_text_primary"
             android:textSize="14sp"
             android:maxLines="1"
             android:inputType="text"
@@ -103,7 +103,7 @@
         android:layout_marginTop="8dp"
         android:padding="4dp"
         android:text="Marcar como lida"
-        android:textColor="#FF007AFF"
+        android:textColor="@color/accent"
         android:textSize="13sp"
         android:textStyle="bold"
         android:visibility="gone" />

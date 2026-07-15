@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FF121214</color>
+    <color name="surface">#FF1E1E22</color>
+    <color name="accent">#4A90E2</color>
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#99FFFFFF</color>
+
+    <color name="notif_bg">#F21C1C1E</color>
+    <color name="notif_stroke">#26FFFFFF</color>
+    <color name="notif_text_primary">#FFFFFFFF</color>
+    <color name="notif_text_secondary">#B3FFFFFF</color>
+    <color name="notif_text_secondary_soft">#80FFFFFF</color>
+</resources>

@@ -1,8 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Modo claro (padrao) - a variante -night fica em values-night/colors.xml. -->
 <resources>
-    <color name="bg_dark">#121214</color>
-    <color name="surface_dark">#1E1E22</color>
+    <color name="bg">#FFFFFFFF</color>
+    <color name="surface">#FFF2F2F7</color>
     <color name="accent">#4A90E2</color>
-    <color name="text_primary">#FFFFFFFF</color>
-    <color name="text_secondary">#99FFFFFF</color>
+    <color name="text_primary">#FF1C1C1E</color>
+    <color name="text_secondary">#993C3C43</color>
+
+    <!-- Cores do pop-up de notificacao (Samsung/iPhone) - convergem pro mesmo
+         par claro/escuro em cada modo, so' o formato (pilula vs card) muda. -->
+    <color name="notif_bg">#F2F2F2F7</color>
+    <color name="notif_stroke">#14000000</color>
+    <color name="notif_text_primary">#FF1C1C1E</color>
+    <color name="notif_text_secondary">#993C3C43</color>
+    <color name="notif_text_secondary_soft">#663C3C43</color>
 </resources>

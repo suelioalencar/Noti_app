@@ -188,7 +188,7 @@ class BriefOverlayIphone(private val ctx: Context) : NotificationOverlay {
         messageList.removeAllViews()
         for (m in item.messages) {
             val row = LayoutInflater.from(uiCtx)
-                .inflate(R.layout.brief_message_row_iphone, messageList, false)
+                .inflate(R.layout.brief_message_row, messageList, false)
             val senderTv = row.findViewById<TextView>(R.id.msgSender)
             val textTv = row.findViewById<TextView>(R.id.msgText)
             val thumb = row.findViewById<ImageView>(R.id.msgThumb)
@@ -276,9 +276,10 @@ class BriefOverlayIphone(private val ctx: Context) : NotificationOverlay {
         vto.addOnWindowFocusChangeListener(object : ViewTreeObserver.OnWindowFocusChangeListener {
             override fun onWindowFocusChanged(hasFocus: Boolean) {
                 if (!hasFocus) return
+                runCatching { vto.removeOnWindowFocusChangeListener(this) }
+                if (!v.isAttachedToWindow) return
                 editText.requestFocus()
                 imm?.showSoftInput(editText, InputMethodManager.SHOW_FORCED)
-                vto.removeOnWindowFocusChangeListener(this)
             }
         })
     }
