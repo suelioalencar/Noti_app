@@ -22,6 +22,7 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewOutlineProvider
+import android.view.ViewTreeObserver
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.util.Log
@@ -283,8 +284,7 @@ class BriefOverlay(private val ctx: Context) {
         if (expand) {
             main.removeCallbacks(hideRunnable)
             if (current?.replyAction != null) {
-                editText.requestFocus()
-                imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+                showKeyboardWhenFocused(v, editText, imm)
             }
         } else {
             imm?.hideSoftInputFromWindow(editText.windowToken, 0)
@@ -315,6 +315,32 @@ class BriefOverlay(private val ctx: Context) {
             lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
         }
         runCatching { wm.updateViewLayout(v, lp) }
+    }
+
+    /**
+     * Chamar requestFocus()/showSoftInput() logo depois de tirar
+     * FLAG_NOT_FOCUSABLE nao funciona de forma confiavel: o
+     * updateViewLayout() que muda a flag e' assincrono (round-trip ate' o
+     * WindowManagerService), entao a janela ainda pode nao ter foco de
+     * verdade no momento em que pedimos o teclado - o EditText fica com
+     * foco "local" mas o IME nao aparece ate' o usuario tocar nele. Espera
+     * o evento real de foco da janela antes de mostrar o teclado.
+     */
+    private fun showKeyboardWhenFocused(v: View, editText: EditText, imm: InputMethodManager?) {
+        if (v.hasWindowFocus()) {
+            editText.requestFocus()
+            imm?.showSoftInput(editText, InputMethodManager.SHOW_FORCED)
+            return
+        }
+        val vto = v.viewTreeObserver
+        vto.addOnWindowFocusChangeListener(object : ViewTreeObserver.OnWindowFocusChangeListener {
+            override fun onWindowFocusChanged(hasFocus: Boolean) {
+                if (!hasFocus) return
+                editText.requestFocus()
+                imm?.showSoftInput(editText, InputMethodManager.SHOW_FORCED)
+                vto.removeOnWindowFocusChangeListener(this)
+            }
+        })
     }
 
     /** Preenche o RemoteInput da action e dispara - normalmente um Broadcast/Service
