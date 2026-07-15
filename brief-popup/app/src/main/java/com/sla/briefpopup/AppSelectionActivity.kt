@@ -2,6 +2,7 @@ package com.sla.briefpopup
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.provider.Settings
@@ -47,7 +48,12 @@ class AppSelectionActivity : Activity() {
             }
             .sortedBy { it.label.lowercase() }
 
-        setContentView(ListView(this).apply { adapter = AppAdapter() })
+        setContentView(ListView(this).apply {
+            adapter = AppAdapter()
+            divider = ColorDrawable(resources.getColor(R.color.surface_dark, theme))
+            dividerHeight = dp(1)
+            setBackgroundColor(resources.getColor(R.color.bg_dark, theme))
+        })
     }
 
     private inner class AppAdapter : BaseAdapter() {
@@ -68,18 +74,27 @@ class AppSelectionActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 text = entry.label
                 textSize = 15f
+                setTextColor(resources.getColor(R.color.text_primary, theme))
             }
             val checkBox = CheckBox(this@AppSelectionActivity).apply {
                 isChecked = AllowlistStore.isEnabled(this@AppSelectionActivity, entry.packageName)
+                buttonTintList = android.content.res.ColorStateList.valueOf(
+                    resources.getColor(R.color.accent, theme)
+                )
                 setOnCheckedChangeListener { _, checked ->
                     AllowlistStore.setEnabled(this@AppSelectionActivity, entry.packageName, checked)
                 }
             }
 
+            val rippleRes = android.util.TypedValue().also {
+                theme.resolveAttribute(android.R.attr.selectableItemBackground, it, true)
+            }.resourceId
+
             return LinearLayout(this@AppSelectionActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(16), dp(12), dp(16), dp(12))
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+                foreground = resources.getDrawable(rippleRes, theme)   // feedback de toque por cima do conteudo
                 addView(icon)
                 addView(label)
                 addView(checkBox)
