@@ -2,7 +2,6 @@ package com.sla.briefpopup
 
 import android.app.ActivityOptions
 import android.app.PendingIntent
-import android.content.Intent
 import android.graphics.Rect
 import android.os.Build
 import android.util.Log
@@ -44,16 +43,14 @@ class FreeformUserService : IFreeformService.Stub() {
                 )
             }
 
-            // Windowing mode e' propriedade da TASK, nao do launch em si - uma
-            // vez em Freeform, a task fica assim pra qualquer abertura futura
-            // (inclusive tocando a notificacao na central, fora do nosso app).
-            // NEW_TASK + MULTIPLE_TASK forca uma instancia de task separada
-            // so' pro launch em Freeform, sem "contaminar" a task padrao que
-            // a central de notificacoes e o open() normal reusam.
-            val fillIn = Intent().apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-            }
-            intent.send(null, 0, fillIn, null, null, null, options.toBundle())
+            // NOTA: um fillIn Intent (3o param) nao-nulo aqui exige um Context
+            // real - com Context nulo da' NullPointerException dentro de
+            // PendingIntent.sendAndReturnResult (confirmado por logcat).
+            // FreeformUserService nao tem Context disponivel, entao por ora
+            // fica sem fillIn/NEW_TASK/MULTIPLE_TASK (isolamento de task fica
+            // pra depois, quando resolver o problema mais critico: fazer a
+            // janela aparecer de verdade).
+            intent.send(null, 0, null, null, null, null, options.toBundle())
 
             // EXPERIMENTAL: o primeiro send() aceita o launch e muda o
             // windowing mode (confirmado por logcat: MotoFreeForm reage,
@@ -64,7 +61,7 @@ class FreeformUserService : IFreeformService.Stub() {
             // "criar uma task nova" - caminho mais direto no
             // ActivityTaskManager, na esperanca de que isso force o foco.
             Thread.sleep(150)
-            intent.send(null, 0, fillIn, null, null, null, options.toBundle())
+            intent.send(null, 0, null, null, null, null, options.toBundle())
             true
         } catch (e: Throwable) {
             Log.w("FreeformUserService", "launchFreeform() falhou mesmo com uid shell", e)
