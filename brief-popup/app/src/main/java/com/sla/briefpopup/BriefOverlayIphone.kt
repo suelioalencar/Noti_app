@@ -65,39 +65,43 @@ class BriefOverlayIphone(private val ctx: Context) : NotificationOverlay {
     private var expanded = false
     private val hideRunnable = Runnable { dismiss() }
 
-    override fun show(item: NotificationItem) = main.post {
-        val v = view ?: inflate().also {
-            wm.addView(it, params())
-            it.translationY = -dp(DROP_START_OFFSET_DP).toFloat()
-            it.animate()
-                .translationY(0f)
-                .setInterpolator(OvershootInterpolator(1.1f))
-                .setDuration(420)
-                .start()
-        }
-        view = v
+    override fun show(item: NotificationItem) {
+        main.post {
+            val v = view ?: inflate().also {
+                wm.addView(it, params())
+                it.translationY = -dp(DROP_START_OFFSET_DP).toFloat()
+                it.animate()
+                    .translationY(0f)
+                    .setInterpolator(OvershootInterpolator(1.1f))
+                    .setDuration(420)
+                    .start()
+            }
+            view = v
 
-        val sameConversationExpanded = expanded && current?.conversationKey == item.conversationKey
-        if (expanded && !sameConversationExpanded) setExpanded(v, false)
-        current = item
-        bind(v, item)
+            val sameConversationExpanded = expanded && current?.conversationKey == item.conversationKey
+            if (expanded && !sameConversationExpanded) setExpanded(v, false)
+            current = item
+            bind(v, item)
 
-        if (sameConversationExpanded) {
-            v.findViewById<View>(R.id.replyRow).visibility =
-                if (item.replyAction != null) View.VISIBLE else View.GONE
-            v.findViewById<View>(R.id.markReadButton).visibility =
-                if (item.markAsReadAction != null) View.VISIBLE else View.GONE
-        } else {
-            main.removeCallbacks(hideRunnable)
-            main.postDelayed(hideRunnable, DURATION_MS)
+            if (sameConversationExpanded) {
+                v.findViewById<View>(R.id.replyRow).visibility =
+                    if (item.replyAction != null) View.VISIBLE else View.GONE
+                v.findViewById<View>(R.id.markReadButton).visibility =
+                    if (item.markAsReadAction != null) View.VISIBLE else View.GONE
+            } else {
+                main.removeCallbacks(hideRunnable)
+                main.postDelayed(hideRunnable, DURATION_MS)
+            }
         }
     }
 
-    override fun dismissIfKey(key: String) = main.post {
-        if (current?.key == key) dismiss()
+    override fun dismissIfKey(key: String) {
+        main.post { if (current?.key == key) dismiss() }
     }
 
-    override fun destroy() = main.post { dismiss() }
+    override fun destroy() {
+        main.post { dismiss() }
+    }
 
     // ---------------------------------------------------------------- interno
 

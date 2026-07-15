@@ -75,37 +75,39 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
     private var expanded = false
     private val hideRunnable = Runnable { dismiss() }
 
-    override fun show(item: NotificationItem) = main.post {
-        var isNewView = false
-        val v = view ?: inflate().also {
-            wm.addView(it, params())
-            isNewView = true
-        }
-        view = v
+    override fun show(item: NotificationItem) {
+        main.post {
+            var isNewView = false
+            val v = view ?: inflate().also {
+                wm.addView(it, params())
+                isNewView = true
+            }
+            view = v
 
-        // Mensagem nova da MESMA conversa enquanto expandido: fica expandido,
-        // so' atualiza o conteudo (o usuario pode estar lendo/respondendo -
-        // recolher do nada perderia o rascunho e a leitura). Conversa
-        // diferente (ou colapsado) segue o fluxo normal: colapsa antes de
-        // trocar o conteudo.
-        val sameConversationExpanded = expanded && current?.conversationKey == item.conversationKey
-        if (expanded && !sameConversationExpanded) setExpanded(v, false)
-        current = item
-        bind(v, item)
+            // Mensagem nova da MESMA conversa enquanto expandido: fica expandido,
+            // so' atualiza o conteudo (o usuario pode estar lendo/respondendo -
+            // recolher do nada perderia o rascunho e a leitura). Conversa
+            // diferente (ou colapsado) segue o fluxo normal: colapsa antes de
+            // trocar o conteudo.
+            val sameConversationExpanded = expanded && current?.conversationKey == item.conversationKey
+            if (expanded && !sameConversationExpanded) setExpanded(v, false)
+            current = item
+            bind(v, item)
 
-        if (isNewView) animateDotOpen(v)
+            if (isNewView) animateDotOpen(v)
 
-        if (sameConversationExpanded) {
-            // setExpanded() nao roda nesse caminho (de proposito, pra nao
-            // reiniciar foco/teclado no meio de uma resposta) - resincroniza
-            // so' a visibilidade das acoes, que pode ter mudado com o item novo.
-            v.findViewById<View>(R.id.replyRow).visibility =
-                if (item.replyAction != null) View.VISIBLE else View.GONE
-            v.findViewById<View>(R.id.markReadButton).visibility =
-                if (item.markAsReadAction != null) View.VISIBLE else View.GONE
-        } else {
-            main.removeCallbacks(hideRunnable)
-            main.postDelayed(hideRunnable, DURATION_MS)
+            if (sameConversationExpanded) {
+                // setExpanded() nao roda nesse caminho (de proposito, pra nao
+                // reiniciar foco/teclado no meio de uma resposta) - resincroniza
+                // so' a visibilidade das acoes, que pode ter mudado com o item novo.
+                v.findViewById<View>(R.id.replyRow).visibility =
+                    if (item.replyAction != null) View.VISIBLE else View.GONE
+                v.findViewById<View>(R.id.markReadButton).visibility =
+                    if (item.markAsReadAction != null) View.VISIBLE else View.GONE
+            } else {
+                main.removeCallbacks(hideRunnable)
+                main.postDelayed(hideRunnable, DURATION_MS)
+            }
         }
     }
 
@@ -159,11 +161,13 @@ class BriefOverlay(private val ctx: Context) : NotificationOverlay {
         })
     }
 
-    override fun dismissIfKey(key: String) = main.post {
-        if (current?.key == key) dismiss()
+    override fun dismissIfKey(key: String) {
+        main.post { if (current?.key == key) dismiss() }
     }
 
-    override fun destroy() = main.post { dismiss() }
+    override fun destroy() {
+        main.post { dismiss() }
+    }
 
     // ---------------------------------------------------------------- interno
 
