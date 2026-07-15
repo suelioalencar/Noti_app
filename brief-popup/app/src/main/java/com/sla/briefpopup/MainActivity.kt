@@ -42,6 +42,13 @@ class MainActivity : Activity() {
         })
 
         root.addView(Button(this).apply {
+            text = "3. Escolher apps"
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, AppSelectionActivity::class.java))
+            }
+        })
+
+        root.addView(Button(this).apply {
             text = "Verificar"
             setOnClickListener {
                 val overlay = Settings.canDrawOverlays(this@MainActivity)

@@ -26,13 +26,8 @@ import android.util.Log
  */
 class BriefListener : NotificationListenerService() {
 
-    /** Apps que passam pelo filtro. Vazio = todos. */
-    private val allowlist = setOf(
-        "com.whatsapp",
-        "com.whatsapp.w4b",
-        "org.telegram.messenger",
-        "com.google.android.apps.messaging"
-    )
+    /** Apps que passam pelo filtro - configuravel via AppSelectionActivity. */
+    private val allowlist: Set<String> get() = AllowlistStore.get(this)
 
     /** chave da conversa -> timestamp da ultima mensagem ja' exibida */
     private val lastShown = HashMap<String, Long>()
@@ -70,7 +65,7 @@ class BriefListener : NotificationListenerService() {
 
         // 1. Filtros baratos primeiro.
         if (sbn.packageName == packageName) return
-        if (allowlist.isNotEmpty() && sbn.packageName !in allowlist) return
+        if (sbn.packageName !in allowlist) return
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return   // <- mata o banner gigante
         if (n.flags and Notification.FLAG_ONGOING_EVENT != 0) return
         if (!sbn.isClearable) return

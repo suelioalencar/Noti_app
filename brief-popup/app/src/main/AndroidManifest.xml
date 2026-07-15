@@ -4,6 +4,16 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Android 11+ restringe visibilidade de pacotes por padrao - precisa
+         declarar essa intencao pra queryIntentActivities() enumerar os apps
+         com launcher (gaveta de apps) na tela de selecao. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@android:drawable/ic_dialog_email"
@@ -18,6 +28,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".AppSelectionActivity"
+            android:label="Escolher apps"
+            android:exported="false" />
 
         <!--
           O NotificationListenerService e' vinculado pelo sistema e ja' e' um Service
